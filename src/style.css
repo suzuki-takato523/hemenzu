@@ -314,6 +314,10 @@ body {
 #drawing-canvas {
   display: block;
   background: white;
+  background-image: 
+    linear-gradient(to right, #f0f0f0 1px, transparent 1px),
+    linear-gradient(to bottom, #f0f0f0 1px, transparent 1px);
+  background-size: 20px 20px;
   cursor: crosshair;
   width: 100%;
   height: 100%;

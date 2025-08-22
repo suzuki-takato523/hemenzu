@@ -10,8 +10,8 @@
     "optimize": "vite build --mode production"
   },
   "devDependencies": {
-    "vite": "^7.0.4",
-    "terser": "^5.19.2"
+    "terser": "^5.43.1",
+    "vite": "^7.0.4"
   },
   "dependencies": {
     "jspdf": "^3.0.1"
