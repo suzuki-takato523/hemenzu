@@ -1,0 +1,48 @@
+{
+  "name": "平面図描画アプリ",
+  "short_name": "FloorPlan",
+  "description": "タブレット対応の家の平面図描画アプリケーション",
+  "theme_color": "#007AFF",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "landscape-primary",
+  "start_url": "./",
+  "scope": "./",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "form_factor": "wide"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "ja",
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "image/png": [".png"],
+        "application/pdf": [".pdf"]
+      }
+    }
+  ]
+}
