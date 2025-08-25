@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/hemenzu/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="平面図描画" />
+    <!-- Apple Touch Icons for iPad -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/hemenzu/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/hemenzu/icon-192.svg" />
+    <link rel="manifest" href="/hemenzu/manifest.json" />
+    <!-- 日本語フォント読み込み -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <!-- タブレット対応：jsPDFライブラリの静的読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+    <title>平面図描画アプリ</title>
+    <script>
+      // サービスワーカーの登録
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+    <script type="module" crossorigin src="/hemenzu/assets/index-Iv_sgMfZ.js"></script>
+    <link rel="modulepreload" crossorigin href="/hemenzu/assets/pdf-lib-COQB5Ng-.js">
+    <link rel="stylesheet" crossorigin href="/hemenzu/assets/index-nEsGPG4q.css">
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="tool-group">
+          <button id="pen-tool" class="tool-btn active" title="ペン (フリーハンド描画)">✏️</button>
+          <button id="line-tool" class="tool-btn" title="直線 (Shift: 水平・垂直固定)">📏</button>
+          <button id="rect-tool" class="tool-btn" title="四角形">⬜</button>
+          <button id="door-tool" class="tool-btn" title="扉">🚪</button>
+          <button id="stairs-tool" class="tool-btn" title="階段">🪜</button>
+          <button id="text-h-tool" class="tool-btn" title="横書きテキスト">🔤</button>
+          <button id="text-v-tool" class="tool-btn" title="縦書きテキスト">🔠</button>
+          <button id="eraser-tool" class="tool-btn" title="消しゴム">🧽</button>
+        </div>
+        <div class="tool-group">
+          <button id="clear-btn" class="tool-btn" title="クリア">🗑️</button>
+          <button id="undo-btn" class="tool-btn" title="元に戻す">↶</button>
+          <button id="redo-btn" class="tool-btn" title="やり直し">↷</button>
+          <button id="export-btn" class="tool-btn" title="エクスポート">📤</button>
+        </div>
+        <!-- エクスポートメニュー -->
+        <div id="export-menu" class="export-menu" style="display: none;">
+          <button id="export-pdf-option" class="export-option" title="PDFとして出力">📄 PDF</button>
+          <button id="export-image-option" class="export-option" title="画像として保存">🖼️ 画像</button>
+        </div>
+        <div class="tool-group">
+          <div id="pen-width-control" class="pen-width-group" style="display: none;">
+            <span class="width-label">太さ:</span>
+            <input type="range" id="pen-width" min="1" max="10" value="2" title="ペンの太さ" />
+            <div id="pen-preview" class="pen-preview"></div>
+          </div>
+          <div id="eraser-size-control" class="eraser-size-group" style="display: none;">
+            <span class="width-label">消しゴム:</span>
+            <input type="range" id="eraser-size" min="1" max="60" value="30" title="消しゴムサイズ" />
+            <div id="eraser-preview" class="eraser-preview"></div>
+          </div>
+          <div id="door-control" class="door-control-group" style="display: none;">
+            <span class="width-label">扉:</span>
+            <select id="door-type" title="扉の種類">
+              <option value="single">片開き</option>
+              <option value="double">両開き</option>
+              <option value="opening" selected>開口部</option>
+            </select>
+          </div>
+          <div id="stairs-control" class="stairs-control-group" style="display: none;">
+            <span class="width-label">階段:</span>
+            <button id="stair-size-small" class="stair-size-btn" title="小 (0.5マス)">小</button>
+            <button id="stair-size-medium" class="stair-size-btn active" title="中 (1マス・基本)">中</button>
+            <button id="stair-size-large" class="stair-size-btn" title="大 (1.5マス)">大</button>
+            <div id="stairs-preview" class="stairs-preview"></div>
+          </div>
+          <div id="line-control" class="line-control-group" style="display: none;">
+            <span class="width-label">線:</span>
+            <button id="line-style-toggle" class="line-style-btn solid" title="実線/点線/矢印切り替え">─</button>
+          </div>
+          <input type="color" id="stroke-color" value="#000000" title="線の色" />
+          <select id="font-size" title="フォントサイズ">
+            <option value="16">16px</option>
+            <option value="20">20px</option>
+            <option value="24">24px</option>
+            <option value="28">28px</option>
+            <option value="32">32px</option>
+            <option value="36">36px</option>
+            <option value="40">40px</option>
+            <option value="48" selected>48px</option>
+            <option value="56">56px</option>
+            <option value="64">64px</option>
+            <option value="72">72px</option>
+            <option value="80">80px</option>
+            <option value="96">96px</option>
+          </select>
+        </div>
+        <div class="status-group">
+          <!-- Shiftインジケーター削除 -->
+        </div>
+      </header>
+      <main class="canvas-container">
+        <canvas id="drawing-canvas"></canvas>
+      </main>
+    </div>
+  </body>
+</html>
