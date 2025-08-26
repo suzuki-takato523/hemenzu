@@ -2,21 +2,21 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/heimenzukei/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="平面図描画" />
     <!-- Apple Touch Icons for iPad -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="152x152" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="144x144" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="120x120" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="76x76" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/heimenzukei/icon-192.svg" />
-    <link rel="apple-touch-icon" href="/heimenzukei/icon-192.svg" />
-    <link rel="manifest" href="/heimenzukei/manifest.json" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <!-- 日本語フォント読み込み -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,13 +38,50 @@
         });
       }
     </script>
-    <script type="module" crossorigin src="/heimenzukei/assets/index-3fdkvhyc.js"></script>
-    <link rel="modulepreload" crossorigin href="/heimenzukei/assets/pdf-lib-CJovE0jj.js">
-    <link rel="stylesheet" crossorigin href="/heimenzukei/assets/index-51C__4T-.css">
   </head>
   <body>
+    <!-- 初期画面 -->
+    <div id="start-screen" class="start-screen">
+      <div class="start-container">
+        <div class="app-header">
+          <div class="app-icon">🏠</div>
+          <h1 class="app-title">平面図描画アプリ</h1>
+          <p class="app-description">建物の間取りや平面図を簡単に作成できます</p>
+        </div>
+        
+        <div class="start-options">
+          <button id="new-project-btn" class="start-option-btn primary">
+            <div class="option-icon">📄</div>
+            <div class="option-content">
+              <h3>新規作成</h3>
+              <p>白紙のキャンバスから新しい平面図を作成</p>
+            </div>
+          </button>
+          
+          <button id="continue-project-btn" class="start-option-btn secondary">
+            <div class="option-icon">📂</div>
+            <div class="option-content">
+              <h3>途中から作成する</h3>
+              <p>保存されたデータを読み込んで続きを作成</p>
+            </div>
+          </button>
+        </div>
+        
+        <div class="start-footer">
+          <div class="quick-links">
+            <a href="#" id="manual-link" class="quick-link">📚 使い方</a>
+            <a href="#" id="samples-link" class="quick-link">🏡 サンプル</a>
+          </div>
+          <div class="app-version">v1.0</div>
+        </div>
+      </div>
+    </div>
+    
     <div id="app">
       <header class="toolbar">
+        <div class="tool-group">
+          <button id="home-btn" class="tool-btn home-btn" title="初期画面に戻る">🏠</button>
+        </div>
         <div class="tool-group">
           <button id="pen-tool" class="tool-btn active" title="ペン (フリーハンド描画)">✏️</button>
           <button id="line-tool" class="tool-btn" title="直線 (Shift: 水平・垂直固定)">📏</button>
@@ -63,6 +100,7 @@
         </div>
         <!-- エクスポートメニュー -->
         <div id="export-menu" class="export-menu" style="display: none;">
+          <button id="export-project-option" class="export-option" title="プロジェクトとして保存">💾 プロジェクト</button>
           <button id="export-pdf-option" class="export-option" title="PDFとして出力">📄 PDF</button>
           <button id="export-image-option" class="export-option" title="画像として保存">🖼️ 画像</button>
         </div>
@@ -121,5 +159,6 @@
         <canvas id="drawing-canvas"></canvas>
       </main>
     </div>
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -26,6 +26,9 @@ export class DrawingCanvas {
     this.currentPath = [];
     this.allPaths = [];
     this.redoStack = [];
+    // セグメント変更のundo/redo管理
+    this.segmentHistory = []; // セグメント変更の履歴
+    this.segmentRedoStack = []; // セグメント変更のredo履歴
     // 開口部のundo/redo管理
     this.openingsHistory = []; // 開口部の履歴
     this.openingsRedoStack = []; // 開口部のredo履歴
@@ -39,6 +42,10 @@ export class DrawingCanvas {
     this.lineStyle = 'solid'; // 線スタイル: 'solid', 'dashed', 'arrow'
     this.doorType = 'opening'; // 扉の種類（初期値：開口部）
     this.doorWidth = 75; // 扉の幅（0.25マス単位: 3.75マス = 75px）
+    
+    // 消しゴム操作の管理
+    this.eraserOperationActive = false;
+    this.eraserOperationChanges = [];
     
     // グリッドサイズを先に設定
     this.gridSize = 160; // グリッドサイズをさらに大きくして見やすく
@@ -611,7 +618,10 @@ export class DrawingCanvas {
       this.ctx.beginPath();
       this.ctx.moveTo(coords.x, coords.y);
     } else if (this.currentTool === 'eraser') {
-      // 消しゴム開始
+      // 消しゴム操作開始
+      this.eraserOperationActive = true;
+      this.eraserOperationChanges = [];
+      console.log('消しゴム操作開始');
       this.eraseAtPoint(coords);
     } else if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
       // 新仕様：ドラッグでのテキストボックス作成は無効化
@@ -828,14 +838,25 @@ export class DrawingCanvas {
         strokeData.stairWidth = this.stairWidth;
       }
       
-      this.allPaths.push(strokeData);
+      
+      // 最後の操作タイプを設定
+      if (this.currentTool === 'eraser' && this.segmentHistory.length > 0) {
+        // 消しゴムでセグメント変更があった場合
+        this.lastOperationType = 'segment';
+        // 消しゴムパスは履歴に追加しない（描画ではなく削除操作のため）
+        console.log('消しゴム操作完了 - セグメント変更として記録');
+      } else {
+        // 通常のパス追加
+        this.allPaths.push(strokeData);
+        this.lastOperationType = 'path';
+        console.log('パス追加:', {
+          tool: strokeData.tool,
+          pathCount: this.allPaths.length,
+          lastOperationType: this.lastOperationType
+        });
+      }
+      
       this.redoStack = []; // Redo履歴をクリア
-      this.lastOperationType = 'path'; // 最後の操作をpath型として記録
-      console.log('パス追加:', {
-        tool: strokeData.tool,
-        pathCount: this.allPaths.length,
-        lastOperationType: this.lastOperationType
-      });
       
       // ペンツールの場合、図形認識を実行
       if (this.currentTool === 'pen') {
@@ -847,6 +868,11 @@ export class DrawingCanvas {
     if (this.currentTool === 'eraser') {
       this.showEraserPreview = false;
       this.eraserPreviewCoords = null;
+      
+      // 消しゴム操作完了処理
+      if (this.eraserOperationActive && this.eraserOperationChanges.length > 0) {
+        this.finishEraserOperation();
+      }
     }
     
     // 図形プレビューをクリア（描画完了時）
@@ -3147,8 +3173,20 @@ export class DrawingCanvas {
             
             if (segmentsToRemove.length > 0) {
               console.log('矢印の線部分のみを部分削除します');
+              // 元のセグメント状態を保存
+              const originalSegments = this.getLineSegmentsHalfGrid(pathData);
               // セグメントを削除して新しい線分を作成
               const newLines = this.removeLineSegmentsHalfGrid(pathData, segmentsToRemove);
+              // セグメント状態を保存（新しい線分の統合セグメントを生成）
+              let newSegments = [];
+              newLines.forEach(line => {
+                if (line.tool === 'line') {
+                  const lineSegments = this.getLineSegmentsHalfGrid(line);
+                  newSegments = newSegments.concat(lineSegments);
+                }
+              });
+              // 元のパスと新しく作られるパス数を含めて保存
+              this.saveLineSegmentState(i, originalSegments, newSegments, pathData, newLines.length);
               // 新しい線分にも矢印スタイルを継承
               newLines.forEach(line => {
                 line.lineStyle = 'arrow';
@@ -3174,8 +3212,20 @@ export class DrawingCanvas {
           
           if (segmentsToRemove.length > 0) {
             console.log('点線の部分削除を実行します');
+            // 元のセグメント状態を保存
+            const originalSegments = this.getLineSegmentsHalfGrid(pathData);
             // セグメントを削除して新しい点線を作成
             const newLines = this.removeLineSegmentsHalfGrid(pathData, segmentsToRemove);
+            // セグメント状態を保存（新しい線分の統合セグメントを生成）
+            let newSegments = [];
+            newLines.forEach(line => {
+              if (line.tool === 'line') {
+                const lineSegments = this.getLineSegmentsHalfGrid(line);
+                newSegments = newSegments.concat(lineSegments);
+              }
+            });
+            // 元のパスと新しく作られるパス数を含めて保存
+            this.saveLineSegmentState(i, originalSegments, newSegments, pathData, newLines.length);
             // 新しい線分にも点線スタイルを継承
             newLines.forEach(line => {
               line.lineStyle = pathData.lineStyle || 'dashed';
@@ -3198,8 +3248,20 @@ export class DrawingCanvas {
         }
         
         if (segmentsToRemove.length > 0) {
+          // 元のセグメント状態を保存
+          const originalSegments = this.getLineSegmentsHalfGrid(pathData);
           // セグメントを削除して新しい線分を作成
           const newLines = this.removeLineSegmentsHalfGrid(pathData, segmentsToRemove);
+          // セグメント状態を保存（新しい線分の統合セグメントを生成）
+          let newSegments = [];
+          newLines.forEach(line => {
+            if (line.tool === 'line') {
+              const lineSegments = this.getLineSegmentsHalfGrid(line);
+              newSegments = newSegments.concat(lineSegments);
+            }
+          });
+          // 元のパスと新しく作られるパス数を含めて保存
+          this.saveLineSegmentState(i, originalSegments, newSegments, pathData, newLines.length);
           pathsToModify.push({ index: i, newPaths: newLines });
         }
       } else if (pathData.tool === 'rectangle') {
@@ -3215,8 +3277,20 @@ export class DrawingCanvas {
         }
         
         if (segmentsToRemove.length > 0) {
+          // 元のセグメント状態を保存
+          const originalSegments = this.getRectangleSegmentsHalfGrid(pathData);
           // 残った辺で新しい線分を作成
           const newLines = this.removeRectangleSegmentsHalfGrid(pathData, segmentsToRemove);
+          // セグメント状態を保存（新しい線分の統合セグメントを生成）
+          let newSegments = [];
+          newLines.forEach(line => {
+            if (line.tool === 'line') {
+              const lineSegments = this.getLineSegmentsHalfGrid(line);
+              newSegments = newSegments.concat(lineSegments);
+            }
+          });
+          // 元のパスと新しく作られるパス数を含めて保存
+          this.saveLineSegmentState(i, originalSegments, newSegments, pathData, newLines.length);
           pathsToModify.push({ index: i, newPaths: newLines });
         }
       } else if (pathData.tool === 'stairs') {
@@ -3940,21 +4014,309 @@ export class DrawingCanvas {
     ctx.restore();
   }
 
+  // セグメント変更の状態を保存
+  saveLineSegmentState(pathIndex, originalSegments, newSegments, originalPath = null, newPathsCount = 0) {
+    console.log('セグメント状態を保存:', { 
+      pathIndex, 
+      originalSegmentsCount: originalSegments?.length, 
+      newSegmentsCount: newSegments?.length,
+      newPathsCount 
+    });
+    
+    // 消しゴム操作中の場合は、蓄積して後でまとめて保存
+    if (this.eraserOperationActive) {
+      this.eraserOperationChanges.push({
+        pathIndex: pathIndex,
+        originalSegments: originalSegments ? [...originalSegments] : null,
+        newSegments: newSegments ? [...newSegments] : null,
+        originalPath: originalPath ? JSON.parse(JSON.stringify(originalPath)) : null,
+        newPathsCount: newPathsCount,
+        timestamp: Date.now()
+      });
+      console.log('消しゴム操作中 - 変更を蓄積:', this.eraserOperationChanges.length);
+      return;
+    }
+    
+    // 通常のセグメント変更履歴に保存
+    const segmentChange = {
+      pathIndex: pathIndex,
+      originalSegments: originalSegments ? [...originalSegments] : null,
+      newSegments: newSegments ? [...newSegments] : null,
+      originalPath: originalPath ? JSON.parse(JSON.stringify(originalPath)) : null,
+      newPathsCount: newPathsCount,
+      timestamp: Date.now()
+    };
+    
+    this.segmentHistory.push(segmentChange);
+    
+    // セグメント操作として記録
+    this.lastOperationType = 'segment';
+    
+    // セグメント変更時はredoスタックをクリア
+    this.segmentRedoStack = [];
+    
+    console.log('セグメント履歴に保存完了:', {
+      segmentHistoryLength: this.segmentHistory.length,
+      savedChange: segmentChange
+    });
+  }
+
+  // 消しゴム操作完了処理
+  finishEraserOperation() {
+    if (this.eraserOperationChanges.length === 0) {
+      this.eraserOperationActive = false;
+      return;
+    }
+    
+    console.log('消しゴム操作完了 - まとめて履歴に保存:', this.eraserOperationChanges.length);
+    
+    // 1つの統合されたセグメント変更として保存
+    const combinedChange = {
+      pathIndex: null, // 複数パスの変更
+      originalSegments: null,
+      newSegments: null,
+      originalPath: null,
+      newPathsCount: 0,
+      eraserOperationChanges: [...this.eraserOperationChanges], // 個別変更の詳細
+      timestamp: Date.now()
+    };
+    
+    this.segmentHistory.push(combinedChange);
+    this.lastOperationType = 'segment';
+    this.segmentRedoStack = [];
+    
+    // クリア
+    this.eraserOperationActive = false;
+    this.eraserOperationChanges = [];
+    
+    console.log('消しゴム操作の統合履歴保存完了');
+  }
+
+  // セグメント変更の状態を復元
+  restoreLineSegmentState(segmentChange) {
+    console.log('セグメント状態を復元:', segmentChange);
+    
+    // 統合された消しゴム操作の復元
+    if (segmentChange.eraserOperationChanges) {
+      console.log('統合された消しゴム操作を復元:', segmentChange.eraserOperationChanges.length);
+      
+      // 逆順で復元（最後の変更から先に戻す）
+      for (let i = segmentChange.eraserOperationChanges.length - 1; i >= 0; i--) {
+        const change = segmentChange.eraserOperationChanges[i];
+        if (change.originalPath) {
+          // パス復元
+          this.allPaths.splice(change.pathIndex, change.newPathsCount);
+          this.allPaths.splice(change.pathIndex, 0, change.originalPath);
+        }
+      }
+      console.log('統合された消しゴム操作の復元完了');
+      return true;
+    }
+    
+    if (!segmentChange || typeof segmentChange.pathIndex !== 'number') {
+      console.warn('無効なセグメント変更データ:', segmentChange);
+      return false;
+    }
+
+    // パスインデックスの調整（削除されたパスがある場合を考慮）
+    if (segmentChange.pathIndex >= this.allPaths.length) {
+      console.warn('復元対象のパスインデックスが範囲外:', segmentChange.pathIndex, 'allPathsLength:', this.allPaths.length);
+      return false;
+    }
+    
+    // 元のパス情報が保存されている場合はそれを使用
+    if (segmentChange.originalPath) {
+      console.log('元のパス情報から復元:', {
+        pathIndex: segmentChange.pathIndex,
+        newPathsCount: segmentChange.newPathsCount || 1
+      });
+      
+      // 新しく作られたパス（分割された線分）を削除
+      const pathsToRemove = segmentChange.newPathsCount || 1;
+      this.allPaths.splice(segmentChange.pathIndex, pathsToRemove);
+      
+      // 元のパスを復元
+      this.allPaths.splice(segmentChange.pathIndex, 0, segmentChange.originalPath);
+      
+      console.log('パス復元完了:', {
+        restoredPath: segmentChange.originalPath.tool,
+        newAllPathsLength: this.allPaths.length
+      });
+      
+      return true;
+    }
+    
+    // フォールバック: セグメントから再構築（後方互換性）
+    if (segmentChange.originalSegments && segmentChange.originalSegments.length > 0) {
+      console.log('セグメントから再構築（フォールバック）:', {
+        pathIndex: segmentChange.pathIndex,
+        originalSegmentsCount: segmentChange.originalSegments.length
+      });
+      
+      // 分割されたパスを削除
+      const pathsToRemove = segmentChange.newPathsCount || 1;
+      this.allPaths.splice(segmentChange.pathIndex, pathsToRemove);
+      
+      // セグメントから新しいパスを再構築
+      const reconstructedPaths = this.reconstructPathsFromSegments(segmentChange.originalSegments);
+      this.allPaths.splice(segmentChange.pathIndex, 0, ...reconstructedPaths);
+      
+      console.log('パス再構築完了:', {
+        reconstructedPathsCount: reconstructedPaths.length,
+        newAllPathsLength: this.allPaths.length
+      });
+      
+      return true;
+    }
+    
+    console.warn('復元するデータがありません');
+    return false;
+  }
+
+  // セグメントからパスを再構築するメソッド
+  reconstructPathsFromSegments(segments) {
+    if (!segments || segments.length === 0) return [];
+    
+    console.log('セグメントからパス再構築開始:', { segmentsCount: segments.length });
+    
+    // セグメントを辺ごとに分類（四角形の場合）
+    const segmentsBySide = {};
+    const lineSegments = [];
+    
+    segments.forEach(segment => {
+      if (segment.side) {
+        // 四角形のセグメント
+        if (!segmentsBySide[segment.side]) {
+          segmentsBySide[segment.side] = [];
+        }
+        segmentsBySide[segment.side].push(segment);
+      } else {
+        // 直線のセグメント
+        lineSegments.push(segment);
+      }
+    });
+    
+    const reconstructedPaths = [];
+    
+    // 四角形の辺を再構築
+    Object.keys(segmentsBySide).forEach(side => {
+      const sideSegments = segmentsBySide[side];
+      if (sideSegments.length === 0) return;
+      
+      // 連続するセグメントを結合して線分を作成
+      const lines = this.combineSegmentsToLines(sideSegments);
+      reconstructedPaths.push(...lines);
+    });
+    
+    // 直線セグメントを再構築
+    if (lineSegments.length > 0) {
+      const lines = this.combineSegmentsToLines(lineSegments);
+      reconstructedPaths.push(...lines);
+    }
+    
+    console.log('パス再構築完了:', { reconstructedPathsCount: reconstructedPaths.length });
+    return reconstructedPaths;
+  }
+
+  // セグメントを結合して線分に変換
+  combineSegmentsToLines(segments) {
+    if (segments.length === 0) return [];
+    
+    // セグメントを位置でソート
+    segments.sort((a, b) => {
+      const aDist = Math.sqrt(a.start.x * a.start.x + a.start.y * a.start.y);
+      const bDist = Math.sqrt(b.start.x * b.start.x + b.start.y * b.start.y);
+      return aDist - bDist;
+    });
+    
+    const lines = [];
+    let currentLine = null;
+    
+    for (const segment of segments) {
+      if (!currentLine) {
+        currentLine = {
+          tool: 'line',
+          startPoint: { ...segment.start },
+          endPoint: { ...segment.end },
+          strokeColor: segment.strokeColor || '#000000',
+          strokeWidth: segment.strokeWidth || 2
+        };
+      } else {
+        // 連続するセグメントかチェック
+        const distance = Math.sqrt(
+          Math.pow(currentLine.endPoint.x - segment.start.x, 2) +
+          Math.pow(currentLine.endPoint.y - segment.start.y, 2)
+        );
+        
+        if (distance < 5) { // 5px以内なら連続
+          currentLine.endPoint = { ...segment.end };
+        } else {
+          lines.push(currentLine);
+          currentLine = {
+            tool: 'line',
+            startPoint: { ...segment.start },
+            endPoint: { ...segment.end },
+            strokeColor: segment.strokeColor || '#000000',
+            strokeWidth: segment.strokeWidth || 2
+          };
+        }
+      }
+    }
+    
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+    
+    return lines;
+  }
+
   undo() {
     console.log('Undo実行前の状態:', {
       allPathsLength: this.allPaths.length,
       redoStackLength: this.redoStack.length,
       openingsHistoryLength: this.openingsHistory.length,
       openingsRedoStackLength: this.openingsRedoStack.length,
+      segmentHistoryLength: this.segmentHistory.length,
+      segmentRedoStackLength: this.segmentRedoStack.length,
       actualOpeningsCount: this.openings.length,
       lastOperationType: this.lastOperationType
     });
     
-    // 最後の操作タイプに基づいてundoを実行
-    // ただし、実際のデータと整合性をチェック
+    // 最後の操作タイプに基づいて正しい順序でundoを実行
     let undone = false;
     
-    if (this.lastOperationType === 'opening' && this.openingsHistory.length > 0 && this.openings.length > 0) {
+    // 1. 最後の操作タイプがセグメント変更の場合
+    if (this.lastOperationType === 'segment' && this.segmentHistory.length > 0) {
+      console.log('セグメント変更をundo（1つずつ復元）');
+      
+      const segmentChange = this.segmentHistory.pop();
+      
+      // 現在の状態をredoスタックに保存
+      const currentSegmentState = {
+        pathIndex: segmentChange.pathIndex,
+        originalSegments: segmentChange.newSegments ? [...segmentChange.newSegments] : null,
+        newSegments: segmentChange.originalSegments ? [...segmentChange.originalSegments] : null,
+        timestamp: Date.now()
+      };
+      this.segmentRedoStack.push(currentSegmentState);
+      
+      // セグメント状態を復元
+      if (this.restoreLineSegmentState(segmentChange)) {
+        undone = true;
+        
+        // セグメント履歴が残っている場合は引き続きsegment操作として維持
+        // すべてのセグメント履歴が復元された場合のみパス削除順序に移行
+        if (this.segmentHistory.length > 0) {
+          this.lastOperationType = 'segment';
+          console.log('セグメント変更のundo完了 - 残りセグメント履歴:', this.segmentHistory.length);
+        } else {
+          this.lastOperationType = this.allPaths.length > 0 ? 'path' : 
+                                  this.openings.length > 0 ? 'opening' : null;
+          console.log('全セグメント履歴復元完了 - 次回は通常のパス削除順序');
+        }
+      }
+      
+    } else if (!undone && this.lastOperationType === 'opening' && this.openingsHistory.length > 0 && this.openings.length > 0) {
       console.log('開口部をundo（実際に開口部が存在する場合）');
       // 開口部のundo（実際に開口部が存在する場合のみ）
       const currentOpenings = this.openings.map(opening => ({
@@ -3974,7 +4336,7 @@ export class DrawingCanvas {
                               this.allPaths.length > 0 ? 'path' : null;
       undone = true;
       
-    } else if (this.allPaths.length > 0) {
+    } else if (!undone && this.allPaths.length > 0) {
       console.log('パスをundo（メイン処理またはフォールバック）');
       // パスのundo（lastOperationType='path'またはフォールバック）
       const lastPath = this.allPaths.pop();
@@ -3985,7 +4347,7 @@ export class DrawingCanvas {
                               this.openings.length > 0 ? 'opening' : null;
       undone = true;
       
-    } else if (this.openingsHistory.length > 0) {
+    } else if (!undone && this.openingsHistory.length > 0) {
       console.log('最終フォールバック: 開口部をundo');
       // 最終フォールバック：開口部履歴のundo
       const currentOpenings = this.openings.map(opening => ({
@@ -4013,10 +4375,37 @@ export class DrawingCanvas {
   }
 
   redo() {
+    console.log('Redo実行前の状態:', {
+      redoStackLength: this.redoStack.length,
+      openingsRedoStackLength: this.openingsRedoStack.length,
+      segmentRedoStackLength: this.segmentRedoStack.length
+    });
+    
     // redo履歴に基づいて適切なredoを実行
+    // セグメント操作、パス操作、開口部操作の順で優先度を設定
     let redone = false;
     
-    if (this.redoStack.length > 0 && this.openingsRedoStack.length > 0) {
+    // 1. セグメント変更のredo（最高優先度）
+    if (this.segmentRedoStack.length > 0) {
+      console.log('セグメント変更をredo');
+      const segmentChange = this.segmentRedoStack.pop();
+      
+      // 現在の状態を履歴に戻す
+      const currentSegmentState = {
+        pathIndex: segmentChange.pathIndex,
+        originalSegments: segmentChange.newSegments ? [...segmentChange.newSegments] : null,
+        newSegments: segmentChange.originalSegments ? [...segmentChange.originalSegments] : null,
+        timestamp: Date.now()
+      };
+      this.segmentHistory.push(currentSegmentState);
+      
+      // セグメント状態を復元
+      if (this.restoreLineSegmentState(segmentChange)) {
+        redone = true;
+        console.log('セグメント変更のredo完了');
+      }
+      
+    } else if (this.redoStack.length > 0 && this.openingsRedoStack.length > 0) {
       // 両方にredo履歴がある場合、最後にundoされた方を判定
       // 通常は片方だけにredo履歴があるはずだが、念のためパスを優先
       const pathToRestore = this.redoStack.pop();
@@ -4050,6 +4439,8 @@ export class DrawingCanvas {
     
     if (redone) {
       this.redrawCanvas();
+    } else {
+      console.log('redo可能な操作がありません');
     }
   }
 
@@ -6670,5 +7061,116 @@ export class DrawingCanvas {
     ctx.lineTo(x2, y2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // プロジェクトデータの取得（保存用）
+  getProjectData() {
+    const projectData = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      settings: {
+        gridSize: this.gridSize,
+        scale: this.scale,
+        offsetX: this.offsetX,
+        offsetY: this.offsetY,
+        snapToGrid: this.snapToGrid
+      },
+      paths: this.allPaths.map(path => {
+        // パスデータのクリーンアップ（不要なプロパティを除外）
+        const cleanPath = { ...path };
+        
+        // 選択状態やプレビュー関連のプロパティを除外
+        delete cleanPath.isSelected;
+        delete cleanPath.isPreview;
+        delete cleanPath.tempData;
+        
+        return cleanPath;
+      }),
+      statistics: {
+        totalPaths: this.allPaths.length,
+        pathsByTool: this.getPathStatistics()
+      }
+    };
+
+    return projectData;
+  }
+
+  // パス統計の取得
+  getPathStatistics() {
+    const stats = {};
+    this.allPaths.forEach(path => {
+      const tool = path.tool || 'unknown';
+      stats[tool] = (stats[tool] || 0) + 1;
+    });
+    return stats;
+  }
+
+  // プロジェクトデータからの読み込み
+  loadFromData(projectData) {
+    if (!projectData) return;
+
+    try {
+      // 既存のパスをクリア
+      this.allPaths = [];
+      this.history = [];
+      this.redoStack = [];
+      this.segmentHistory = [];
+      this.segmentRedoStack = [];
+
+      // パスデータの復元
+      if (projectData.paths && Array.isArray(projectData.paths)) {
+        this.allPaths = [...projectData.paths];
+      }
+
+      // 設定の復元
+      if (projectData.settings) {
+        if (projectData.settings.gridSize) {
+          this.setGridSize(projectData.settings.gridSize);
+        }
+        if (projectData.settings.scale !== undefined) {
+          this.setScale(projectData.settings.scale);
+        }
+        if (projectData.settings.offsetX !== undefined || projectData.settings.offsetY !== undefined) {
+          this.setOffset(projectData.settings.offsetX || 0, projectData.settings.offsetY || 0);
+        }
+        if (projectData.settings.snapToGrid !== undefined) {
+          this.setSnapToGrid(projectData.settings.snapToGrid);
+        }
+      }
+
+      // キャンバスを再描画
+      this.redrawCanvas();
+      
+      console.log(`プロジェクトデータを読み込みました: ${this.allPaths.length}個のパス`);
+
+    } catch (error) {
+      console.error('プロジェクトデータの読み込みに失敗:', error);
+      throw error;
+    }
+  }
+
+  // 選択状態のクリア
+  clearSelection() {
+    try {
+      // 全てのパスの選択状態をクリア
+      this.allPaths.forEach(path => {
+        if (path.isSelected) {
+          path.isSelected = false;
+        }
+      });
+
+      // テキストボックスの選択状態もクリア
+      this.clearTextBoxSelection();
+
+      // 選択関連の変数をリセット
+      this.selectedPaths = [];
+      this.isDragging = false;
+      this.isResizing = false;
+      
+      console.log('選択状態をクリアしました');
+      
+    } catch (error) {
+      console.error('選択状態のクリア中にエラー:', error);
+    }
   }
 }

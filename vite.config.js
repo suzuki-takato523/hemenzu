@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   // GitHub Pages用のベースパス（リポジトリ名に合わせて変更）
-  base: process.env.NODE_ENV === 'production' ? '/heimenzukei/' : './',
+  base: process.env.NODE_ENV === 'production' ? '/hemenzu/' : './',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
