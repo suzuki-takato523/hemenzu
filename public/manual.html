@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>平面図描画アプリ - ユーザーマニュアル</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans JP', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+            background-color: #fafafa;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #34495e;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+            margin-top: 40px;
+        }
+        
+        h3 {
+            color: #7f8c8d;
+            margin-top: 30px;
+        }
+        
+        h4 {
+            color: #95a5a6;
+            margin-top: 25px;
+        }
+        
+        code {
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border: 1px solid #e9ecef;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #e9ecef;
+            font-weight: bold;
+        }
+        
+        ul, ol {
+            padding-left: 25px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        
+        .back-link:hover {
+            background-color: #2980b9;
+        }
+        
+        .toc {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .toc h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        
+        .toc ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        
+        .toc li {
+            margin: 5px 0;
+        }
+        
+        .toc a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← アプリに戻る</a>
+    
+    <h1>平面図描画アプリ - ユーザーマニュアル</h1>
+
+    <div class="toc">
+        <h3>目次</h3>
+        <ul>
+            <li><a href="#overview">概要</a></li>
+            <li><a href="#basic-operations">基本操作</a>
+                <ul>
+                    <li><a href="#drawing-tools">描画ツール</a></li>
+                    <li><a href="#history">操作履歴（戻る・やり直し）</a></li>
+                    <li><a href="#display">表示機能</a></li>
+                    <li><a href="#file-operations">ファイル操作</a></li>
+                </ul>
+            </li>
+            <li><a href="#settings">設定項目</a></li>
+            <li><a href="#advanced-features">高度な機能</a></li>
+            <li><a href="#tips">操作のコツ</a></li>
+            <li><a href="#troubleshooting">トラブルシューティング</a></li>
+            <li><a href="#shortcuts">キーボードショートカット</a></li>
+            <li><a href="#environment">推奨環境</a></li>
+        </ul>
+    </div>
+
+    <h2 id="overview">概要</h2>
+    <p>このアプリは、タブレット対応の平面図描画ツールです。建物の間取り図や設計図を簡単に作成できます。</p>
+    
+    <h3>主な特徴</h3>
+    <ul>
+        <li><strong>タブレット最適化</strong>: タッチペンでの精密な描画に対応</li>
+        <li><strong>多彩な描画ツール</strong>: ペン、直線、四角形、扉、階段、テキストツール</li>
+        <li><strong>高度な編集機能</strong>: 戻る・やり直し、消しゴム、図形の移動・リサイズ</li>
+        <li><strong>PWA対応</strong>: ホーム画面に追加してアプリのように使用可能</li>
+        <li><strong>複数形式での保存</strong>: PNG、PDF形式での出力</li>
+    </ul>
+
+    <h2 id="basic-operations">基本操作</h2>
+
+    <h3 id="drawing-tools">1. 描画ツール</h3>
+
+    <h4>ペンツール 🖊️</h4>
+    <ul>
+        <li><strong>機能</strong>: フリーハンドで線を描画</li>
+        <li><strong>使い方</strong>: ペンツールを選択してキャンバス上をドラッグ</li>
+        <li><strong>特徴</strong>: 自動図形認識機能付き（線や円を描くと自動で整形）</li>
+    </ul>
+
+    <h4>直線ツール 📏</h4>
+    <ul>
+        <li><strong>機能</strong>: 直線を描画</li>
+        <li><strong>使い方</strong>: 
+            <ol>
+                <li>直線ツールを選択</li>
+                <li>開始点をクリック</li>
+                <li>終了点をクリック</li>
+            </ol>
+        </li>
+        <li><strong>線スタイル</strong>: 実線、破線、矢印から選択可能</li>
+    </ul>
+
+    <h4>四角形ツール ⬜</h4>
+    <ul>
+        <li><strong>機能</strong>: 正確な四角形を描画</li>
+        <li><strong>使い方</strong>:
+            <ol>
+                <li>四角形ツールを選択</li>
+                <li>開始点をクリック</li>
+                <li>対角線上の終了点をクリック</li>
+            </ol>
+        </li>
+    </ul>
+
+    <h4>扉ツール 🚪</h4>
+    <ul>
+        <li><strong>機能</strong>: 扉や開口部を描画</li>
+        <li><strong>種類</strong>: 
+            <ul>
+                <li>開口部（単純な開口）</li>
+                <li>片開き扉（左開き・右開き）</li>
+                <li>両開き扉</li>
+            </ul>
+        </li>
+        <li><strong>使い方</strong>: 扉ツールを選択し、設置したい箇所をドラッグ</li>
+        <li><strong>設定</strong>: 扉の種類と幅をツールバーで調整可能</li>
+        <li><strong>削除</strong>: 消しゴムツールで削除可能、戻るボタンで復元可能</li>
+    </ul>
+
+    <h4>階段ツール 🪜</h4>
+    <ul>
+        <li><strong>機能</strong>: 階段記号を描画</li>
+        <li><strong>設定</strong>: 段数（固定10段）とサイズ（Small、Medium、Large）を調整可能</li>
+        <li><strong>使い方</strong>: 階段ツールを選択し、配置したい箇所をドラッグ</li>
+        <li><strong>表示</strong>: 段数の数字と矢印で上昇方向を表示</li>
+        <li><strong>削除</strong>: 消しゴムツールで削除可能、戻るボタンで復元可能</li>
+    </ul>
+
+    <h4>テキストツール 📝</h4>
+    <ul>
+        <li><strong>機能</strong>: 文字を追加</li>
+        <li><strong>種類</strong>: 横書き、縦書き</li>
+        <li><strong>使い方</strong>:
+            <ol>
+                <li>テキストツールを選択</li>
+                <li>配置したい箇所をクリック</li>
+                <li>テキストを入力</li>
+            </ol>
+        </li>
+        <li><strong>編集</strong>: テキストボックスをダブルクリックで再編集</li>
+        <li><strong>移動・リサイズ</strong>: テキストボックスをクリックして選択後、ドラッグで移動、ハンドルでリサイズ</li>
+        <li><strong>フォント設定</strong>: サイズは12〜72ピクセルで調整可能</li>
+    </ul>
+
+    <h4>消しゴムツール 🗑️</h4>
+    <ul>
+        <li><strong>機能</strong>: 描画した内容を削除</li>
+        <li><strong>特徴</strong>: 線分単位での精密削除</li>
+        <li><strong>使い方</strong>: 消しゴムツールを選択し、削除したい部分をドラッグ</li>
+        <li><strong>対応オブジェクト</strong>: ペン線、直線、四角形、扉、階段、開口部</li>
+        <li><strong>サイズ調整</strong>: 消しゴムサイズスライダーで5〜50ピクセルに調整</li>
+        <li><strong>復元</strong>: 削除したオブジェクトは戻るボタンで復元可能</li>
+    </ul>
+
+    <h3 id="history">2. 操作履歴（戻る・やり直し）</h3>
+
+    <h4>戻る（Undo）⏪</h4>
+    <ul>
+        <li><strong>機能</strong>: 直前の操作を取り消し</li>
+        <li><strong>対象操作</strong>:
+            <ul>
+                <li>図形の描画（ペン、直線、四角形）</li>
+                <li>扉・階段・開口部の配置</li>
+                <li>テキストの追加</li>
+                <li>消しゴムでの削除（削除されたオブジェクトを復元）</li>
+                <li>テキストボックスの移動・リサイズ</li>
+            </ul>
+        </li>
+        <li><strong>特徴</strong>: 
+            <ul>
+                <li>消しゴム操作は逆順で復元</li>
+                <li>複数のオブジェクトを同時に削除した場合も正確に復元</li>
+                <li>操作履歴は最新順で管理</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>やり直し（Redo）⏩</h4>
+    <ul>
+        <li><strong>機能</strong>: 取り消した操作を再実行</li>
+        <li><strong>使い方</strong>: 戻る操作の後に使用可能</li>
+        <li><strong>制限</strong>: 新しい操作を実行するとやり直し履歴はクリアされる</li>
+    </ul>
+
+    <h3 id="display">3. 表示機能</h3>
+
+    <h4>ズーム 🔍</h4>
+    <ul>
+        <li><strong>拡大</strong>: マウスホイール上、またはピンチアウト</li>
+        <li><strong>縮小</strong>: マウスホイール下、またはピンチイン</li>
+        <li><strong>範囲</strong>: 0.1倍〜5倍</li>
+    </ul>
+
+    <h4>パン（移動）👋</h4>
+    <ul>
+        <li><strong>機能</strong>: キャンバスの表示位置を移動</li>
+        <li><strong>操作</strong>: キャンバスをドラッグ（描画ツール以外選択時）</li>
+    </ul>
+
+    <h4>グリッド表示 ⬜</h4>
+    <ul>
+        <li><strong>機能</strong>: 補助線を表示</li>
+        <li><strong>効果</strong>: 正確な配置と寸法管理</li>
+    </ul>
+
+    <h3 id="file-operations">4. ファイル操作</h3>
+
+    <h4>保存 💾</h4>
+    <ul>
+        <li><strong>PNG形式</strong>: 画像として保存</li>
+        <li><strong>PDF形式</strong>: 印刷用ドキュメントとして保存</li>
+        <li><strong>機能</strong>: ブラウザのダウンロード機能を使用</li>
+    </ul>
+
+    <h4>全消去 🗑️</h4>
+    <ul>
+        <li><strong>機能</strong>: すべての描画内容を削除</li>
+        <li><strong>注意</strong>: 復元不可のため慎重に使用</li>
+    </ul>
+
+    <h2 id="settings">設定項目</h2>
+
+    <h3>線の太さ</h3>
+    <ul>
+        <li><strong>範囲</strong>: 1〜50ピクセル</li>
+        <li><strong>調整</strong>: スライダーで変更</li>
+    </ul>
+
+    <h3>線の色</h3>
+    <ul>
+        <li><strong>選択</strong>: カラーパレットから選択</li>
+        <li><strong>対象</strong>: すべての描画ツール</li>
+    </ul>
+
+    <h3>消しゴムサイズ</h3>
+    <ul>
+        <li><strong>範囲</strong>: 5〜50ピクセル</li>
+        <li><strong>調整</strong>: 専用スライダーで変更</li>
+    </ul>
+
+    <h3>フォントサイズ</h3>
+    <ul>
+        <li><strong>範囲</strong>: 12〜72ピクセル</li>
+        <li><strong>対象</strong>: テキストツール</li>
+    </ul>
+
+    <h3>階段設定</h3>
+    <ul>
+        <li><strong>段数</strong>: 固定10段</li>
+        <li><strong>サイズ</strong>: Small、Medium、Large</li>
+    </ul>
+
+    <h3>扉設定</h3>
+    <ul>
+        <li><strong>幅</strong>: 10〜40ピクセル（グリッドの0.5〜2マス相当）</li>
+        <li><strong>種類</strong>: 開口部、片開き扉（左開き・右開き）、両開き扉</li>
+        <li><strong>表示</strong>: 開口部は白い枠線、扉は開閉方向の弧線付き</li>
+        <li><strong>用途</strong>: 玄関、部屋の出入口、窓などに使用</li>
+    </ul>
+
+    <h2 id="advanced-features">高度な機能</h2>
+
+    <h3>オブジェクトの選択と操作</h3>
+    
+    <h4>テキストボックスの操作</h4>
+    <ul>
+        <li><strong>選択</strong>: テキストボックスをクリックして選択</li>
+        <li><strong>移動</strong>: 選択後、テキストボックス内をドラッグして移動</li>
+        <li><strong>リサイズ</strong>: 選択時に表示されるハンドル（■）をドラッグしてサイズ変更</li>
+        <li><strong>編集</strong>: ダブルクリックでテキスト編集モードに切り替え</li>
+        <li><strong>削除</strong>: 消しゴムツールで削除、または編集時に全文字を削除</li>
+    </ul>
+
+    <h4>開口部・扉・階段の操作</h4>
+    <ul>
+        <li><strong>移動</strong>: オブジェクトをクリックして選択後、ドラッグで移動</li>
+        <li><strong>削除</strong>: 消しゴムツールでクリックまたはドラッグして削除</li>
+        <li><strong>復元</strong>: 戻るボタンで削除前の状態に復元</li>
+    </ul>
+
+    <h3>精密な描画支援</h3>
+    
+    <h4>グリッドスナップ</h4>
+    <ul>
+        <li><strong>機能</strong>: 描画時に自動的にグリッドに吸着</li>
+        <li><strong>対象</strong>: 直線、四角形、扉、階段の配置</li>
+        <li><strong>メリット</strong>: 正確な寸法と整列が可能</li>
+    </ul>
+
+    <h4>図形認識</h4>
+    <ul>
+        <li><strong>機能</strong>: ペンツールで描いた図形を自動認識</li>
+        <li><strong>対象</strong>: 直線、円、四角形</li>
+        <li><strong>使い方</strong>: ペンツールで大まかに図形を描くと自動で整形</li>
+    </ul>
+
+    <h3>表示とナビゲーション</h3>
+    
+    <h4>ズーム操作</h4>
+    <ul>
+        <li><strong>マウスホイール</strong>: 上下でズームイン・アウト</li>
+        <li><strong>タッチデバイス</strong>: ピンチジェスチャーでズーム</li>
+        <li><strong>範囲</strong>: 0.1倍〜5倍まで調整可能</li>
+        <li><strong>中心点</strong>: マウスカーソル位置を中心にズーム</li>
+    </ul>
+
+    <h4>パン（画面移動）</h4>
+    <ul>
+        <li><strong>マウス</strong>: キャンバスをドラッグして移動</li>
+        <li><strong>タッチデバイス</strong>: 二本指でのドラッグで移動</li>
+        <li><strong>条件</strong>: 描画ツール以外を選択時に有効</li>
+    </ul>
+
+    <h2 id="tips">操作のコツ</h2>
+
+    <h3>精密な描画</h3>
+    <ol>
+        <li><strong>グリッド表示を活用</strong>: 正確な位置合わせ</li>
+        <li><strong>ズーム機能</strong>: 細かい作業時は拡大</li>
+        <li><strong>直線ツール</strong>: 真っ直ぐな線が必要な場合</li>
+    </ol>
+
+    <h3>効率的な編集</h3>
+    <ol>
+        <li><strong>消しゴムの活用</strong>: 部分修正に便利</li>
+        <li><strong>undo/redo</strong>: 試行錯誤しながら作業</li>
+        <li><strong>テキスト編集</strong>: 後から内容変更可能</li>
+    </ol>
+
+    <h3>タブレット使用時</h3>
+    <ol>
+        <li><strong>タッチペン推奨</strong>: より精密な操作</li>
+        <li><strong>画面回転</strong>: 作業しやすい向きに調整</li>
+        <li><strong>二本指操作</strong>: ズーム・パンに活用</li>
+    </ol>
+
+    <h2 id="troubleshooting">トラブルシューティング</h2>
+
+    <h3>よくある問題</h3>
+
+    <h4>線が思うように描けない</h4>
+    <ul>
+        <li><strong>原因</strong>: ズームレベルが適切でない、またはマルチタッチが検出されている</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>適度にズームして作業</li>
+                <li>タッチデバイスでは指一本のみで操作</li>
+                <li>タッチペンの使用を推奨</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>消しゴムで削除できない</h4>
+    <ul>
+        <li><strong>原因</strong>: 消しゴムサイズが小さすぎる、または対象オブジェクトを正確に指していない</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>消しゴムサイズを大きくする</li>
+                <li>削除したいオブジェクトの中心部分をクリック</li>
+                <li>線の場合は線上を正確にドラッグ</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>テキストが編集できない</h4>
+    <ul>
+        <li><strong>原因</strong>: テキストボックスが選択されていない、または他のツールが選択されている</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>テキストツールを選択</li>
+                <li>テキストボックスをクリックして選択状態にする</li>
+                <li>ダブルクリックで編集モードに入る</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>ツールが切り替わらない</h4>
+    <ul>
+        <li><strong>原因</strong>: テキストボックスが編集中、または移動中の状態</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>テキスト編集を完了する（Enter または他の場所をクリック）</li>
+                <li>移動中のオブジェクトを配置する</li>
+                <li>必要に応じてページを再読み込み</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>操作が重い・動作が不安定</h4>
+    <ul>
+        <li><strong>原因</strong>: 描画内容が多すぎる、メモリ不足、またはブラウザの問題</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>不要な線やオブジェクトを削除</li>
+                <li>定期的にブラウザを再読み込み</li>
+                <li>他のタブやアプリを閉じてメモリを確保</li>
+                <li>作業内容を定期的に保存</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>戻る・やり直しが効かない</h4>
+    <ul>
+        <li><strong>原因</strong>: 操作履歴の上限に達している、またはシステムエラー</li>
+        <li><strong>解決</strong>: 
+            <ul>
+                <li>ページを再読み込み（作業内容は失われます）</li>
+                <li>定期的な保存を心がける</li>
+                <li>重要な作業前にPNG/PDF出力で保存</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>パフォーマンス改善</h3>
+    <ol>
+        <li><strong>定期的な保存</strong>: 作業内容の保護</li>
+        <li><strong>不要な線の削除</strong>: 動作の軽量化</li>
+        <li><strong>ブラウザ再読み込み</strong>: 動作が重くなった場合</li>
+    </ol>
+
+    <h2 id="shortcuts">キーボードショートカット</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>操作</th>
+                <th>ショートカット</th>
+                <th>説明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>戻る</td>
+                <td>Ctrl + Z</td>
+                <td>直前の操作を取り消し</td>
+            </tr>
+            <tr>
+                <td>やり直し</td>
+                <td>Ctrl + Y</td>
+                <td>取り消した操作を再実行</td>
+            </tr>
+            <tr>
+                <td>保存</td>
+                <td>Ctrl + S</td>
+                <td>PNG形式で画像を保存</td>
+            </tr>
+            <tr>
+                <td>全消去</td>
+                <td>Ctrl + A → Delete</td>
+                <td>全ての描画内容を削除</td>
+            </tr>
+            <tr>
+                <td>ズームイン</td>
+                <td>Ctrl + +(プラス)</td>
+                <td>画面を拡大</td>
+            </tr>
+            <tr>
+                <td>ズームアウト</td>
+                <td>Ctrl + -(マイナス)</td>
+                <td>画面を縮小</td>
+            </tr>
+            <tr>
+                <td>ズームリセット</td>
+                <td>Ctrl + 0</td>
+                <td>ズームを100%に戻す</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <blockquote>
+        <strong>注意</strong>: 一部のショートカットはブラウザの設定により動作しない場合があります。
+    </blockquote>
+
+    <h2 id="environment">推奨環境</h2>
+
+    <h3>ブラウザ</h3>
+    <ul>
+        <li>Chrome（推奨）</li>
+        <li>Firefox</li>
+        <li>Safari</li>
+        <li>Edge</li>
+    </ul>
+
+    <h3>デバイス</h3>
+    <ul>
+        <li><strong>PC</strong>: Windows、Mac、Linux</li>
+        <li><strong>タブレット</strong>: iPad、Android タブレット</li>
+        <li><strong>スマートフォン</strong>: 基本機能のみ対応</li>
+    </ul>
+
+    <h3>推奨スペック</h3>
+    <ul>
+        <li><strong>メモリ</strong>: 4GB以上</li>
+        <li><strong>ストレージ</strong>: 100MB以上の空き容量</li>
+        <li><strong>ネットワーク</strong>: 初回読み込み時のみ必要</li>
+    </ul>
+
+    <h2>更新履歴</h2>
+
+    <h3>バージョン 1.1（2025年8月26日）</h3>
+    <ul>
+        <li><strong>高度な戻る・やり直し機能</strong>: 消しゴム削除の正確な復元に対応</li>
+        <li><strong>テキストボックスの改良</strong>: 移動・リサイズ機能の追加</li>
+        <li><strong>扉ツールの強化</strong>: 削除・復元機能、当たり判定の改善</li>
+        <li><strong>階段ツールの強化</strong>: 削除・復元機能の追加</li>
+        <li><strong>ユーザーマニュアル</strong>: 包括的なマニュアルページの追加</li>
+        <li><strong>安定性の向上</strong>: イベント処理の改善、状態管理の最適化</li>
+    </ul>
+
+    <h3>バージョン 1.0（初回リリース）</h3>
+    <ul>
+        <li>基本描画機能（ペン、直線、四角形）</li>
+        <li>扉・階段・開口部ツール</li>
+        <li>テキストツール（横書き・縦書き）</li>
+        <li>消しゴム機能</li>
+        <li>基本的な戻る・やり直し機能</li>
+        <li>PNG・PDF保存機能</li>
+        <li>ズーム・パン機能</li>
+        <li>グリッド表示</li>
+        <li>PWA対応</li>
+    </ul>
+
+    <h3>今後の予定</h3>
+    <ul>
+        <li><strong>レイヤー機能</strong>: 複数レイヤーでの描画管理</li>
+        <li><strong>テンプレート機能</strong>: 間取りのテンプレート集</li>
+        <li><strong>寸法線ツール</strong>: 寸法の表示機能</li>
+        <li><strong>図形ライブラリ</strong>: 家具や設備のシンボル集</li>
+        <li><strong>クラウド同期</strong>: 作業データのオンライン保存</li>
+        <li><strong>印刷機能の改良</strong>: 縮尺設定、複数ページ対応</li>
+    </ul>
+
+    <h2>サポート</h2>
+
+    <h3>お問い合わせ</h3>
+    <ul>
+        <li>GitHub Issues: <a href="https://github.com/suzuki-takato523/heimenzukei">リポジトリURL</a></li>
+        <li>開発者: suzuki-takato523</li>
+    </ul>
+
+    <h3>よくある質問</h3>
+    <p>詳細な FAQ は GitHub wiki をご参照ください。</p>
+
+    <hr>
+
+    <p><strong>最終更新</strong>: 2025年8月26日<br>
+    <strong>バージョン</strong>: 1.1<br>
+    <strong>作成者</strong>: 平面図描画アプリ開発チーム</p>
+
+    <a href="/" class="back-link">← アプリに戻る</a>
+</body>
+</html>
