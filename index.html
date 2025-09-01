@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/hemenzu/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="平面図描画" />
@@ -18,7 +17,7 @@
     <link rel="apple-touch-icon" sizes="72x72" href="/hemenzu/icon-192.svg" />
     <link rel="apple-touch-icon" href="/hemenzu/icon-192.svg" />
     <link rel="manifest" href="/hemenzu/manifest.json" />
-    <!-- 日本語フォント読み込み - パフォーマンス最適化 -->
+    <!-- 日本語フォント読み込み -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
@@ -39,111 +38,133 @@
         });
       }
     </script>
-    <script type="module" crossorigin src="/hemenzu/assets/index-IPwHcO_3.js"></script>
+    <script type="module" crossorigin src="/hemenzu/assets/index-CUpyBXV1.js"></script>
     <link rel="modulepreload" crossorigin href="/hemenzu/assets/pdf-lib-COQB5Ng-.js">
-    <link rel="stylesheet" crossorigin href="/hemenzu/assets/index-BLpa8ejC.css">
+    <link rel="stylesheet" crossorigin href="/hemenzu/assets/index-iRRbyDFI.css">
   </head>
   <body>
-    <!-- 初期画面 -->
+    <!-- スタート画面 -->
     <div id="start-screen" class="start-screen">
       <div class="start-container">
-        <div class="app-header">
-          <div class="app-icon">🏠</div>
-          <h1 class="app-title">平面図描画アプリ</h1>
-          <p class="app-description">建物の間取りや平面図を簡単に作成できます</p>
-        </div>
+        <header class="start-header">
+          <h1 class="app-title">🏠 平面図描画アプリ</h1>
+          <p class="app-description">タブレット対応の間取り図作成ツール</p>
+        </header>
         
-        <div class="help-section">
-          <a href="./manual.html" target="_blank" class="help-btn">
-            📖 ユーザーマニュアル
-          </a>
-        </div>
-        
-        <div class="start-options">
-          <button id="new-project-btn" class="start-option-btn primary">
-            <div class="option-icon">📄</div>
+        <main class="start-options">
+          <button id="new-project-btn" class="start-option-btn">
             <div class="option-content">
-              <h3>新規作成</h3>
-              <p>白紙のキャンバスから新しい平面図を作成</p>
+              <span class="option-icon">📐</span>
+              <div>
+                <h3>新規作成</h3>
+                <p>新しい平面図を作成</p>
+              </div>
             </div>
           </button>
           
-          <button id="continue-project-btn" class="start-option-btn secondary">
-            <div class="option-icon">📂</div>
+          <button id="continue-project-btn" class="start-option-btn">
             <div class="option-content">
-              <h3>途中から作成する</h3>
-              <p>保存されたデータを読み込んで続きを作成</p>
+              <span class="option-icon">📁</span>
+              <div>
+                <h3>続きから</h3>
+                <p>ファイルを読み込んで続きを作成</p>
+              </div>
             </div>
           </button>
-        </div>
+        </main>
         
-        <div class="start-footer">
+        <footer class="start-footer">
           <div class="quick-links">
+            <a href="#" id="manual-link" class="quick-link">📖 使い方</a>
           </div>
-          <div class="app-version">v1.0</div>
-        </div>
+          <div class="app-version">v1.0.0</div>
+        </footer>
       </div>
     </div>
-    
+
     <div id="app">
       <header class="toolbar">
         <div class="tool-group">
-          <button id="home-btn" class="tool-btn home-btn" title="初期画面に戻る" aria-label="ホーム - 初期画面に戻る" role="button">🏠</button>
+          <button id="home-btn" class="tool-btn" title="ホームに戻る">
+            <img src="/hemenzu/home screen.png" alt="ホーム">
+          </button>
+          <button id="pen-tool" class="tool-btn active" title="ペン (フリーハンド描画)">
+            <img src="/hemenzu/pen.png" alt="ペン">
+          </button>
+          <button id="line-tool" class="tool-btn" title="直線 (Shift: 水平・垂直固定)">
+            <img src="/hemenzu/straight line.png" alt="直線">
+          </button>
+          <button id="rect-tool" class="tool-btn" title="四角形">
+            <img src="/hemenzu/square.png" alt="四角形">
+          </button>
+          <button id="door-tool" class="tool-btn" title="建具">
+            <img src="/hemenzu/furniture.png" alt="建具">
+          </button>
+          <button id="stairs-tool" class="tool-btn" title="階段">
+            <img src="/hemenzu/staircase.png" alt="階段">
+          </button>
+          <button id="text-h-tool" class="tool-btn" title="横書きテキスト">
+            <img src="/hemenzu/text box with horizontal writing.png" alt="横書きテキスト">
+          </button>
+          <button id="text-v-tool" class="tool-btn" title="縦書きテキスト">
+            <img src="/hemenzu/text box with vertical writing.png" alt="縦書きテキスト">
+          </button>
+          <button id="eraser-tool" class="tool-btn" title="消しゴム">
+            <img src="/hemenzu/eraser.png" alt="消しゴム">
+          </button>
         </div>
         <div class="tool-group">
-          <button id="pen-tool" class="tool-btn active" title="ペン (フリーハンド描画)" aria-label="ペンツール - フリーハンド描画" role="button">✏️</button>
-          <button id="line-tool" class="tool-btn" title="直線 (Shift: 水平・垂直固定)" aria-label="直線ツール - Shiftキーで水平・垂直固定" role="button">📏</button>
-          <button id="rect-tool" class="tool-btn" title="四角形" aria-label="四角形ツール" role="button">⬜</button>
-          <button id="door-tool" class="tool-btn" title="扉" aria-label="扉・開口部ツール" role="button">🚪</button>
-          <button id="stairs-tool" class="tool-btn" title="階段" aria-label="階段ツール" role="button">🪜</button>
-          <button id="text-h-tool" class="tool-btn" title="横書きテキスト" aria-label="横書きテキストツール" role="button">🔤</button>
-          <button id="text-v-tool" class="tool-btn" title="縦書きテキスト" aria-label="縦書きテキストツール" role="button">🔠</button>
-          <button id="eraser-tool" class="tool-btn" title="消しゴム" aria-label="消しゴムツール" role="button">🧽</button>
-        </div>
-        <div class="tool-group">
-          <button id="clear-btn" class="tool-btn" title="クリア" aria-label="キャンバスをクリア（全削除）" role="button">🗑️</button>
-          <button id="undo-btn" class="tool-btn" title="元に戻す" aria-label="前の操作を元に戻す" role="button">↶</button>
-          <button id="redo-btn" class="tool-btn" title="やり直し" aria-label="元に戻した操作をやり直し" role="button">↷</button>
-          <button id="export-btn" class="tool-btn" title="エクスポート" aria-label="ファイルのエクスポート・保存" role="button">📤</button>
+          <button id="clear-btn" class="tool-btn" title="クリア">
+            <img src="/hemenzu/trash can.png" alt="クリア">
+          </button>
+          <button id="undo-btn" class="tool-btn" title="元に戻す">
+            <img src="/hemenzu/go back one step.png" alt="元に戻す">
+          </button>
+          <button id="redo-btn" class="tool-btn" title="やり直し">
+            <img src="/hemenzu/go forward one step.png" alt="やり直し">
+          </button>
+          <button id="export-btn" class="tool-btn" title="エクスポート">
+            <img src="/hemenzu/download.png" alt="エクスポート">
+          </button>
         </div>
         <!-- エクスポートメニュー -->
         <div id="export-menu" class="export-menu" style="display: none;">
-          <button id="export-project-option" class="export-option" title="プロジェクトとして保存">💾 プロジェクト</button>
+          <button id="export-project-option" class="export-option" title="プロジェクトデータとして保存">💾 データ</button>
           <button id="export-pdf-option" class="export-option" title="PDFとして出力">📄 PDF</button>
           <button id="export-image-option" class="export-option" title="画像として保存">🖼️ 画像</button>
         </div>
         <div class="tool-group">
           <div id="pen-width-control" class="pen-width-group" style="display: none;">
             <span class="width-label">太さ:</span>
-            <input type="range" id="pen-width" min="1" max="10" value="2" title="ペンの太さ" aria-label="ペンの太さを調整" />
+            <input type="range" id="pen-width" min="1" max="10" value="2" title="ペンの太さ" />
             <div id="pen-preview" class="pen-preview"></div>
           </div>
           <div id="eraser-size-control" class="eraser-size-group" style="display: none;">
             <span class="width-label">消しゴム:</span>
-            <input type="range" id="eraser-size" min="1" max="60" value="30" title="消しゴムサイズ" aria-label="消しゴムサイズを調整" />
+            <input type="range" id="eraser-size" min="1" max="60" value="30" title="消しゴムサイズ" />
             <div id="eraser-preview" class="eraser-preview"></div>
           </div>
           <div id="door-control" class="door-control-group" style="display: none;">
-            <span class="width-label">種類:</span>
-            <select id="door-type" title="開口部・扉の種類" aria-label="開口部・扉の種類を選択">
-              <option value="opening" selected>開口部</option>
-              <option value="single">片開き扉</option>
-              <option value="double">両開き扉</option>
+            <span class="width-label">建具:</span>
+            <select id="door-type" title="建具の種類">
+              <option value="smallbox" selected>開口部</option>
+              <option value="single">片開き戸</option>
+              <option value="double">両開き戸</option>
             </select>
           </div>
           <div id="stairs-control" class="stairs-control-group" style="display: none;">
             <span class="width-label">階段:</span>
-            <button id="stair-size-small" class="stair-size-btn" title="小 (0.5マス)" aria-label="小さい階段 - 0.5マス" role="button">小</button>
-            <button id="stair-size-medium" class="stair-size-btn active" title="中 (1マス・基本)" aria-label="中サイズ階段 - 1マス・基本" role="button">中</button>
-            <button id="stair-size-large" class="stair-size-btn" title="大 (1.5マス)" aria-label="大きい階段 - 1.5マス" role="button">大</button>
+            <button id="stair-size-small" class="stair-size-btn" title="小 (0.5マス)">小</button>
+            <button id="stair-size-medium" class="stair-size-btn active" title="中 (1マス・基本)">中</button>
+            <button id="stair-size-large" class="stair-size-btn" title="大 (1.5マス)">大</button>
             <div id="stairs-preview" class="stairs-preview"></div>
           </div>
           <div id="line-control" class="line-control-group" style="display: none;">
             <span class="width-label">線:</span>
-            <button id="line-style-toggle" class="line-style-btn solid" title="実線/点線/矢印切り替え" aria-label="線のスタイル切り替え（実線/点線/矢印）" role="button">─</button>
+            <button id="line-style-toggle" class="line-style-btn solid" title="実線/点線/矢印切り替え">─</button>
           </div>
-          <input type="color" id="stroke-color" value="#000000" title="線の色" aria-label="線・図形の色を選択" />
-          <select id="font-size" title="フォントサイズ" aria-label="テキストのフォントサイズを選択">
+          <input type="color" id="stroke-color" value="#000000" title="線の色" />
+          <select id="font-size" title="フォントサイズ">
             <option value="16">16px</option>
             <option value="20">20px</option>
             <option value="24">24px</option>
@@ -164,9 +185,8 @@
         </div>
       </header>
       <main class="canvas-container">
-        <canvas id="drawing-canvas" role="img" aria-label="平面図描画キャンバス" tabindex="0"></canvas>
+        <canvas id="drawing-canvas"></canvas>
       </main>
     </div>
-
   </body>
 </html>

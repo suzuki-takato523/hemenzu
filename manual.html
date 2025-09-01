@@ -133,7 +133,7 @@
     </style>
 </head>
 <body>
-    <a href="/hemenzu/index.html" class="back-link">← アプリに戻る</a>
+    <a href="./" class="back-link">← アプリに戻る</a>
     
     <h1>平面図描画アプリ - ユーザーマニュアル</h1>
 
@@ -143,6 +143,7 @@
             <li><a href="#overview">概要</a></li>
             <li><a href="#basic-operations">基本操作</a>
                 <ul>
+                    <li><a href="#home-button">ホーム機能</a></li>
                     <li><a href="#drawing-tools">描画ツール</a></li>
                     <li><a href="#history">操作履歴（戻る・やり直し）</a></li>
                     <li><a href="#display">表示機能</a></li>
@@ -164,13 +165,43 @@
     <h3>主な特徴</h3>
     <ul>
         <li><strong>タブレット最適化</strong>: タッチペンでの精密な描画に対応</li>
-        <li><strong>多彩な描画ツール</strong>: ペン、直線、四角形、扉、階段、テキストツール</li>
+        <li><strong>多彩な描画ツール</strong>: ペン、直線、四角形、建具、階段、テキストツール</li>
         <li><strong>高度な編集機能</strong>: 戻る・やり直し、消しゴム、図形の移動・リサイズ</li>
         <li><strong>PWA対応</strong>: ホーム画面に追加してアプリのように使用可能</li>
         <li><strong>複数形式での保存</strong>: PNG、PDF形式での出力</li>
     </ul>
 
     <h2 id="basic-operations">基本操作</h2>
+
+    <h3 id="home-button">ホーム機能 🏠</h3>
+
+    <h4>ホームボタン</h4>
+    <ul>
+        <li><strong>場所</strong>: ツールバーの最左端（緑色のボタン）</li>
+        <li><strong>機能</strong>: 現在の作業を終了してスタート画面に戻る</li>
+        <li><strong>使い方</strong>: 
+            <ol>
+                <li>ツールバーの🏠ボタンをクリック</li>
+                <li>スタート画面が表示される</li>
+                <li>新しいプロジェクトの開始や既存ファイルの読み込みが可能</li>
+            </ol>
+        </li>
+        <li><strong>注意事項</strong>: 
+            <ul>
+                <li>現在の作業内容は保存されません</li>
+                <li>重要なデータは事前にPNG/PDF形式で保存してください</li>
+                <li>戻った後も、ブラウザの「戻る」ボタンで作業画面に復帰可能</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h4>スタート画面の機能</h4>
+    <ul>
+        <li><strong>新規プロジェクト</strong>: 空白のキャンバスで作業開始</li>
+        <li><strong>ワンクリック操作</strong>: 各ツールの直感的な操作性</li>
+        <li><strong>ファイル読み込み</strong>: 保存済みの画像ファイルを背景として読み込み</li>
+        <li><strong>マニュアル</strong>: このマニュアルページを表示</li>
+    </ul>
 
     <h3 id="drawing-tools">1. 描画ツール</h3>
 
@@ -206,18 +237,19 @@
         </li>
     </ul>
 
-    <h4>扉ツール 🚪</h4>
+    <h4>建具ツール 🚪</h4>
     <ul>
-        <li><strong>機能</strong>: 扉や開口部を描画</li>
+        <li><strong>機能</strong>: 建具や開口部を描画</li>
         <li><strong>種類</strong>: 
             <ul>
                 <li>開口部（単純な開口）</li>
-                <li>片開き扉（左開き・右開き）</li>
-                <li>両開き扉</li>
+                <li>開口部（デフォルト選択）</li>
+                <li>片開き戸（左開き・右開き）</li>
+                <li>両開き戸</li>
             </ul>
         </li>
-        <li><strong>使い方</strong>: 扉ツールを選択し、設置したい箇所をドラッグ</li>
-        <li><strong>設定</strong>: 扉の種類と幅をツールバーで調整可能</li>
+        <li><strong>使い方</strong>: 建具ツールを選択し、設置したい箇所をクリックまたはドラッグ</li>
+        <li><strong>設定</strong>: 建具の種類と幅をツールバーで調整可能</li>
         <li><strong>削除</strong>: 消しゴムツールで削除可能、戻るボタンで復元可能</li>
     </ul>
 
@@ -251,7 +283,7 @@
         <li><strong>機能</strong>: 描画した内容を削除</li>
         <li><strong>特徴</strong>: 線分単位での精密削除</li>
         <li><strong>使い方</strong>: 消しゴムツールを選択し、削除したい部分をドラッグ</li>
-        <li><strong>対応オブジェクト</strong>: ペン線、直線、四角形、扉、階段、開口部</li>
+        <li><strong>対応オブジェクト</strong>: ペン線、直線、四角形、建具、階段、開口部</li>
         <li><strong>サイズ調整</strong>: 消しゴムサイズスライダーで5〜50ピクセルに調整</li>
         <li><strong>復元</strong>: 削除したオブジェクトは戻るボタンで復元可能</li>
     </ul>
@@ -264,7 +296,7 @@
         <li><strong>対象操作</strong>:
             <ul>
                 <li>図形の描画（ペン、直線、四角形）</li>
-                <li>扉・階段・開口部の配置</li>
+                <li>建具・階段・開口部の配置</li>
                 <li>テキストの追加</li>
                 <li>消しゴムでの削除（削除されたオブジェクトを復元）</li>
                 <li>テキストボックスの移動・リサイズ</li>
@@ -354,11 +386,11 @@
         <li><strong>サイズ</strong>: Small、Medium、Large</li>
     </ul>
 
-    <h3>扉設定</h3>
+    <h3>建具設定</h3>
     <ul>
         <li><strong>幅</strong>: 10〜40ピクセル（グリッドの0.5〜2マス相当）</li>
-        <li><strong>種類</strong>: 開口部、片開き扉（左開き・右開き）、両開き扉</li>
-        <li><strong>表示</strong>: 開口部は白い枠線、扉は開閉方向の弧線付き</li>
+        <li><strong>種類</strong>: 開口部（デフォルト）、片開き戸（左開き・右開き）、両開き戸</li>
+        <li><strong>表示</strong>: 開口部は薄いグレーの四角、建具は開閉方向の弧線付き</li>
         <li><strong>用途</strong>: 玄関、部屋の出入口、窓などに使用</li>
     </ul>
 
@@ -375,7 +407,7 @@
         <li><strong>削除</strong>: 消しゴムツールで削除、または編集時に全文字を削除</li>
     </ul>
 
-    <h4>開口部・扉・階段の操作</h4>
+    <h4>開口部・建具・階段の操作</h4>
     <ul>
         <li><strong>移動</strong>: オブジェクトをクリックして選択後、ドラッグで移動</li>
         <li><strong>削除</strong>: 消しゴムツールでクリックまたはドラッグして削除</li>
@@ -387,7 +419,7 @@
     <h4>グリッドスナップ</h4>
     <ul>
         <li><strong>機能</strong>: 描画時に自動的にグリッドに吸着</li>
-        <li><strong>対象</strong>: 直線、四角形、扉、階段の配置</li>
+        <li><strong>対象</strong>: 直線、四角形、建具、階段の配置</li>
         <li><strong>メリット</strong>: 正確な寸法と整列が可能</li>
     </ul>
 
@@ -534,6 +566,11 @@
         </thead>
         <tbody>
             <tr>
+                <td>ホームに戻る</td>
+                <td>🏠ボタンクリック</td>
+                <td>スタート画面に戻る</td>
+            </tr>
+            <tr>
                 <td>戻る</td>
                 <td>Ctrl + Z</td>
                 <td>直前の操作を取り消し</td>
@@ -601,11 +638,32 @@
 
     <h2>更新履歴</h2>
 
+    <h3>バージョン 1.2（2025年8月28日）</h3>
+    <ul>
+        <li><strong>ホームボタンの追加</strong>: ツールバーに🏠ボタンを追加、いつでもスタート画面に戻れる機能</li>
+        <li><strong>消しゴム機能の大幅改良</strong>: 
+            <ul>
+                <li>戻る・やり直し機能の完全対応</li>
+                <li>削除前の完全な状態復元</li>
+                <li>複数オブジェクト削除時の正確な履歴管理</li>
+            </ul>
+        </li>
+        <li><strong>ユーザビリティの向上</strong>: 
+            <ul>
+                <li>ホームボタンの専用スタイル（緑色）</li>
+                <li>直感的なナビゲーション</li>
+                <li>作業フローの改善</li>
+            </ul>
+        </li>
+        <li><strong>スタート画面の改良</strong>: プロジェクト管理機能の強化</li>
+        <li><strong>マニュアルの更新</strong>: 最新機能の詳細説明を追加</li>
+    </ul>
+
     <h3>バージョン 1.1（2025年8月26日）</h3>
     <ul>
         <li><strong>高度な戻る・やり直し機能</strong>: 消しゴム削除の正確な復元に対応</li>
         <li><strong>テキストボックスの改良</strong>: 移動・リサイズ機能の追加</li>
-        <li><strong>扉ツールの強化</strong>: 削除・復元機能、当たり判定の改善</li>
+        <li><strong>建具ツールの強化</strong>: 削除・復元機能、当たり判定の改善</li>
         <li><strong>階段ツールの強化</strong>: 削除・復元機能の追加</li>
         <li><strong>ユーザーマニュアル</strong>: 包括的なマニュアルページの追加</li>
         <li><strong>安定性の向上</strong>: イベント処理の改善、状態管理の最適化</li>
@@ -614,7 +672,7 @@
     <h3>バージョン 1.0（初回リリース）</h3>
     <ul>
         <li>基本描画機能（ペン、直線、四角形）</li>
-        <li>扉・階段・開口部ツール</li>
+        <li>建具・階段・開口部ツール</li>
         <li>テキストツール（横書き・縦書き）</li>
         <li>消しゴム機能</li>
         <li>基本的な戻る・やり直し機能</li>
@@ -647,11 +705,10 @@
 
     <hr>
 
-    <p><strong>最終更新</strong>: 2025年8月26日<br>
-    <strong>バージョン</strong>: 1.1<br>
+    <p><strong>最終更新</strong>: 2025年8月28日<br>
+    <strong>バージョン</strong>: 1.2<br>
     <strong>作成者</strong>: 平面図描画アプリ開発チーム</p>
 
-    <a href="/" class="back-link">← アプリに戻る</a>
+    <a href="./" class="back-link">← アプリに戻る</a>
 </body>
 </html>
-
