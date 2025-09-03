@@ -21,6 +21,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <!-- キャッシュ回避用のメタタグ -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <!-- タブレット対応：jsPDFライブラリの静的読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
     <title>平面図描画アプリ</title>
@@ -38,9 +42,9 @@
         });
       }
     </script>
-    <script type="module" crossorigin src="/hemenzu/assets/index-CUpyBXV1.js"></script>
+    <script type="module" crossorigin src="/hemenzu/assets/index-CNYf6pVI.js"></script>
     <link rel="modulepreload" crossorigin href="/hemenzu/assets/pdf-lib-COQB5Ng-.js">
-    <link rel="stylesheet" crossorigin href="/hemenzu/assets/index-iRRbyDFI.css">
+    <link rel="stylesheet" crossorigin href="/hemenzu/assets/index-CmAithAf.css">
   </head>
   <body>
     <!-- スタート画面 -->
@@ -94,6 +98,9 @@
           <button id="line-tool" class="tool-btn" title="直線 (Shift: 水平・垂直固定)">
             <img src="/hemenzu/straight line.png" alt="直線">
           </button>
+          <button id="polyline-grid-tool" class="tool-btn" title="グリッド連続直線 (1筆書き・グリッドスナップ)">
+            <img src="/hemenzu/Calligraphy brush.png" alt="グリッド連続直線">
+          </button>
           <button id="rect-tool" class="tool-btn" title="四角形">
             <img src="/hemenzu/square.png" alt="四角形">
           </button>
@@ -109,6 +116,85 @@
           <button id="text-v-tool" class="tool-btn" title="縦書きテキスト">
             <img src="/hemenzu/text box with vertical writing.png" alt="縦書きテキスト">
           </button>
+          
+          <!-- 定型文プルダウン -->
+          <div class="preset-text-container">
+            <select id="preset-text-select" class="preset-text-select" title="定型文を選択して配置">
+              <option value="">定型文を選択</option>
+              <optgroup label="居住空間">
+                <option value="LDK">LDK</option>
+                <option value="DK">DK</option>
+                <option value="K">K</option>
+                <option value="洋室">洋室</option>
+                <option value="和室">和室</option>
+              </optgroup>
+              <optgroup label="水回り">
+                <option value="UBR">UBR</option>
+                <option value="BR">BR</option>
+                <option value="洗面">洗面</option>
+                <option value="WC">WC</option>
+              </optgroup>
+              <optgroup label="その他空間">
+                <option value="玄関">玄関</option>
+                <option value="押入">押入</option>
+                <option value="階段">階段</option>
+                <option value="床下">床下</option>
+                <option value="開口部">開口部</option>
+              </optgroup>
+              
+              <!-- 旧定型文（コメントアウト保存）
+              <optgroup label="部屋名">
+                <option value="リビング">リビング</option>
+                <option value="ダイニング">ダイニング</option>
+                <option value="キッチン">キッチン</option>
+                <option value="寝室">寝室</option>
+                <option value="洋室">洋室</option>
+                <option value="和室">和室</option>
+                <option value="書斎">書斎</option>
+                <option value="子供部屋">子供部屋</option>
+              </optgroup>
+              <optgroup label="水回り">
+                <option value="浴室">浴室</option>
+                <option value="洗面所">洗面所</option>
+                <option value="トイレ">トイレ</option>
+                <option value="脱衣所">脱衣所</option>
+                <option value="ランドリー">ランドリー</option>
+              </optgroup>
+              <optgroup label="収納・その他">
+                <option value="クローゼット">クローゼット</option>
+                <option value="押入れ">押入れ</option>
+                <option value="パントリー">パントリー</option>
+                <option value="玄関">玄関</option>
+                <option value="廊下">廊下</option>
+                <option value="階段">階段</option>
+                <option value="バルコニー">バルコニー</option>
+                <option value="ベランダ">ベランダ</option>
+              </optgroup>
+              <optgroup label="設備">
+                <option value="エアコン">エアコン</option>
+                <option value="給湯器">給湯器</option>
+                <option value="冷蔵庫">冷蔵庫</option>
+                <option value="洗濯機">洗濯機</option>
+                <option value="食洗機">食洗機</option>
+              </optgroup>
+              <optgroup label="寸法・注記">
+                <option value="6畳">6畳</option>
+                <option value="8畳">8畳</option>
+                <option value="10畳">10畳</option>
+                <option value="12畳">12畳</option>
+                <option value="1F">1F</option>
+                <option value="2F">2F</option>
+                <option value="北">北</option>
+                <option value="南">南</option>
+                <option value="東">東</option>
+                <option value="西">西</option>
+              </optgroup>
+              -->
+            </select>
+            <button id="preset-text-place" class="tool-btn preset-text-btn" title="選択した定型文を配置">
+              <span>配置</span>
+            </button>
+          </div>
           <button id="eraser-tool" class="tool-btn" title="消しゴム">
             <img src="/hemenzu/eraser.png" alt="消しゴム">
           </button>
@@ -125,6 +211,9 @@
           </button>
           <button id="export-btn" class="tool-btn" title="エクスポート">
             <img src="/hemenzu/download.png" alt="エクスポート">
+          </button>
+          <button id="dark-mode-btn" class="tool-btn" title="ダークモード切り替え">
+            <img id="dark-mode-icon" src="/hemenzu/moom.png" alt="ダークモード">
           </button>
         </div>
         <!-- エクスポートメニュー -->
