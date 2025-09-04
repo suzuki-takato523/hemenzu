@@ -19,32 +19,6 @@ const DRAWING_CONFIG = {
  * タッチペン対応の描画機能を提供
  */
 export class DrawingCanvas {
-  // イベントハンドラー削除メソッド（インスタンス破棄時に使用）
-  removeAllEventListeners() {
-    console.error('イベントハンドラーを削除中...');
-    // マウスイベント
-    this.canvas.removeEventListener('mousedown', this.mouseDownHandler);
-    this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
-    this.canvas.removeEventListener('mouseup', this.mouseUpHandler);
-    this.canvas.removeEventListener('mouseleave', this.mouseLeaveHandler);
-    this.canvas.removeEventListener('wheel', this.wheelHandler);
-    
-    // タッチイベント
-    this.canvas.removeEventListener('touchstart', this.touchStartHandler);
-    this.canvas.removeEventListener('touchmove', this.touchMoveHandler);
-    this.canvas.removeEventListener('touchend', this.touchEndHandler);
-    this.canvas.removeEventListener('touchcancel', this.touchCancelHandler);
-    
-    // キーボードイベント
-    document.removeEventListener('keydown', this.keyDownHandler);
-    document.removeEventListener('keyup', this.keyUpHandler);
-    
-    // コンテキストメニュー
-    this.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
-    
-    console.error('イベントハンドラー削除完了');
-  }
-
   constructor(canvasSelector) {
     this.canvas = document.querySelector(canvasSelector);
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
@@ -55,28 +29,24 @@ export class DrawingCanvas {
     // セグメント変更のundo/redo管理
     this.segmentHistory = []; // セグメント変更の履歴
     this.segmentRedoStack = []; // セグメント変更のredo履歴
-    
-    // 消しゴム操作の専用undo/redo管理
-    this.eraserHistory = []; // 消しゴム操作の履歴
-    this.eraserRedoStack = []; // 消しゴム操作のredo履歴
-    
-    // 統合操作履歴（最後の操作タイプを追跡）
-    this.lastOperationType = null; // 'path', 'segment', 'eraser'
+    // 開口部のundo/redo管理
+    this.openingsHistory = []; // 開口部の履歴
+    this.openingsRedoStack = []; // 開口部のredo履歴
+    // 統合操作履歴（操作をスタック形式で追跡）
+    this.operationHistory = []; // 操作履歴をスタック形式で管理
+    this.eraserDeletedPaths = []; // 消しゴムで削除されたパスを追跡
     this.strokeWidth = 2;
     this.penWidth = 2; // ペン専用の太さ
     this.eraserSize = 30; // 消しゴムサイズ（独立して設定可能）- デフォルトを30に
-    this.strokeColor = this.getDefaultStrokeColor(); // ダークモード対応のデフォルト色
+    this.strokeColor = '#000000';
     this.currentTool = 'pen';
     this.lineStyle = 'solid'; // 線スタイル: 'solid', 'dashed', 'arrow'
-    this.doorType = 'smallbox'; // 建具の種類（初期値：開口部）
+    this.doorType = 'opening'; // 扉の種類（初期値：開口部）
     this.doorWidth = 75; // 扉の幅（0.25マス単位: 3.75マス = 75px）
     
     // 消しゴム操作の管理
     this.eraserOperationActive = false;
     this.eraserOperationChanges = [];
-    this.eraserOperationStartSnapshot = null; // 消しゴム操作開始時のスナップショット
-    this.eraserClickProcessed = false; // クリック重複防止フラグ
-    this.isEraserPressed = false; // 消しゴムボタンが押されているかのフラグ
     
     // グリッドサイズを先に設定
     this.gridSize = 160; // グリッドサイズをさらに大きくして見やすく
@@ -104,14 +74,13 @@ export class DrawingCanvas {
     this.showEraserPreview = false;
     this.eraserPreviewCoords = null;
     
-    // パフォーマンス最適化
-    this.isRedrawing = false; // 再描画中フラグ
-    this.redrawRequested = false; // 再描画要求フラグ
-    this.lastRedrawTime = 0; // 最後の再描画時刻
-    this.redrawThrottleMs = 8; // 125FPS相当（約8ms）に変更して応答性を向上
-    this.mouseMoveThrottleMs = 4; // マウス移動の間引き（250FPS相当）
-    this.lastMouseMoveTime = 0;
-    
+    // 開口部管理用のプロパティ
+    this.openings = []; // 開口部の配列
+    this.selectedOpening = null; // 選択中の開口部
+    this.isDraggingOpening = false; // 開口部のドラッグ中フラグ
+    this.openingDragOffset = { x: 0, y: 0 }; // ドラッグオフセット
+    this.showOpeningPreview = false; // 開口部プレビュー表示フラグ
+    this.openingPreviewCoords = null; // プレビュー座標
     this.touchPreviewTimer = null; // タッチプレビュー用タイマー
     this.isShowingTouchPreview = false; // タッチプレビュー状態
     this.isMultiTouch = false; // マルチタッチ検出フラグ
@@ -153,6 +122,8 @@ export class DrawingCanvas {
     // 初期グリッド描画
     this.redrawCanvas();
     
+    // 初期状態として空の開口部履歴を保存
+    this.saveOpeningsState();
   }
 
   setupHighDPI() {
@@ -189,235 +160,248 @@ export class DrawingCanvas {
     this.redrawCanvas();
   }
 
+  removeEventListeners() {
+    console.log('removeEventListeners呼び出し - 全イベントリスナーを削除中...');
+    
+    if (this.boundHandlers) {
+      // マウスイベント
+      this.canvas.removeEventListener('mousedown', this.boundHandlers.mousedown);
+      this.canvas.removeEventListener('mousemove', this.boundHandlers.mousemove);
+      this.canvas.removeEventListener('mouseup', this.boundHandlers.mouseup);
+      this.canvas.removeEventListener('mouseleave', this.boundHandlers.mouseleave);
+      this.canvas.removeEventListener('wheel', this.boundHandlers.wheel);
+      
+      // タッチイベント
+      this.canvas.removeEventListener('touchstart', this.boundHandlers.touchstart);
+      this.canvas.removeEventListener('touchmove', this.boundHandlers.touchmove);
+      this.canvas.removeEventListener('touchend', this.boundHandlers.touchend);
+      this.canvas.removeEventListener('touchcancel', this.boundHandlers.touchcancel);
+      
+      // キーボードイベント
+      document.removeEventListener('keydown', this.boundHandlers.keydown);
+      document.removeEventListener('keyup', this.boundHandlers.keyup);
+      
+      // その他
+      this.canvas.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
+      
+      // boundHandlersをクリア
+      this.boundHandlers = null;
+    }
+    
+    // フラグをリセット
+    this.eventListenersSetup = false;
+    console.log('全イベントリスナーを削除し、フラグをリセットしました');
+  }
+
   setupEventListeners() {
-    // マウスイベント
-    this.canvas.addEventListener('mousedown', (e) => {
-      // テキストボックスツール時もstartDrawingを呼ぶ（編集・移動・選択のため）
-      this.startDrawing(e);
-    });
-    this.canvas.addEventListener('mousemove', (e) => {
-      // テキストボックスツール時もdrawを呼ぶ（移動処理のため）
-      if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
-        this.updateCursorForPosition(e);
-        this.draw(e);
-        return;
-      }
-      if (!this.isDrawing && !this.isDraggingTextBox && !this.isResizing) {
-        this.updateCursorForPosition(e);
-      }
-      // 消しゴムプレビューの更新
-      if (this.currentTool === 'eraser') {
-        this.updateEraserPreview(e);
-      } else {
-        this.showEraserPreview = false;
-      }
-      this.draw(e);
-    });
-    this.canvas.addEventListener('mouseup', (e) => {
-      if (this.currentTool === 'eraser' && this.isEraserPressed) {
-        this.stopEraserOperation();
-      }
-      this.stopDrawing(e);
-    });
+    // 既にイベントリスナーが設定されている場合は何もしない
+    if (this.eventListenersSetup) {
+      console.log('イベントリスナーは既に設定済みです。スキップします。');
+      return;
+    }
     
-    // 消しゴム専用のマウスダウンイベント（ボタンを押したときに消去開始）
-    this.canvas.addEventListener('mousedown', (e) => {
-      if (this.currentTool === 'eraser') {
-        this.startEraserOperation(e);
-      }
-    });
+    console.log('setupEventListeners開始 - 新規設定');
     
-    // 削除：テキストボックスツール時の特別処理は不要
-    // 全ツールでstopDrawingを呼び、テキストボックス操作の完了処理を行う
+    // 既存のイベントリスナーを削除（重複防止）
+    this.removeEventListeners();
     
-    // マウスがキャンバスから離れたときの処理
-    this.canvas.addEventListener('mouseleave', () => {
-      this.showEraserPreview = false;
-      this.redrawCanvas();
-    });
-    
-    // ズーム機能（PC用：マウスホイール）
-    this.canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      
-      // ズーム倍率を計算
-      const zoomIntensity = 0.1;
-      const delta = e.deltaY < 0 ? 1 : -1;
-      const zoom = Math.exp(delta * zoomIntensity);
-      
-      this.zoomAt(mouseX, mouseY, zoom);
-    });
-    
-    // タッチイベント（シンプル化）
-    this.canvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      
-      if (e.touches.length === 2) {
-        // ピンチジェスチャー開始
-        this.isPinching = true;
-        this.isMultiTouch = true;
-        this.lastMultiTouchTime = Date.now();
-        this.lastPinchDistance = this.getPinchDistance(e.touches);
-        this.pinchCenter = this.getPinchCenter(e.touches);
-        this.lastPanPoint = this.getPinchCenter(e.touches);
-        console.log('ピンチジェスチャー開始');
-      } else if (e.touches.length === 1 && !this.isPinching && !this.multiTouchCooldown) {
-        // 通常のタッチ描画
-        this.startDrawing(e.touches[0]);
-      }
-    });
-    this.canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      
-      if (e.touches.length === 2 && this.isPinching) {
-        // ピンチジェスチャー処理
-        const currentDistance = this.getPinchDistance(e.touches);
-        const currentCenter = this.getPinchCenter(e.touches);
-        
-        // ズーム処理
-        if (this.lastPinchDistance > 0) {
-          const zoom = currentDistance / this.lastPinchDistance;
-          this.zoomAt(currentCenter.x, currentCenter.y, zoom);
+    // イベントハンドラを保存（後で削除するため）
+    this.boundHandlers = {
+      mousedown: (e) => this.startDrawing(e),
+      mousemove: (e) => {
+        // テキストボックスツール時もdrawを呼ぶ（移動処理のため）
+        if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
+          this.updateCursorForPosition(e);
+          this.draw(e);
+          return;
         }
-        
-        // パン（移動）処理
-        if (this.lastPanPoint) {
-          const dx = currentCenter.x - this.lastPanPoint.x;
-          const dy = currentCenter.y - this.lastPanPoint.y;
-          this.translateX += dx;
-          this.translateY += dy;
-          this.redrawCanvas();
-        }
-        
-        this.lastPinchDistance = currentDistance;
-        this.pinchCenter = currentCenter;
-        this.lastPanPoint = currentCenter;
-      } else if (e.touches.length === 1 && !this.isPinching && !this.multiTouchCooldown) {
-        // 通常の1本指移動
         if (!this.isDrawing && !this.isDraggingTextBox && !this.isResizing) {
-          this.updateCursorForPosition(e.touches[0]);
+          this.updateCursorForPosition(e);
         }
-        
-        // 消しゴムプレビューの更新（タッチデバイス用）
+        // 消しゴムプレビューの更新
         if (this.currentTool === 'eraser') {
-          this.updateEraserPreview(e.touches[0]);
+          this.updateEraserPreview(e);
         } else {
           this.showEraserPreview = false;
         }
+        this.draw(e);
+      },
+      mouseup: (e) => this.stopDrawing(e),
+      mouseleave: () => {
+        this.showEraserPreview = false;
+        this.redrawCanvas();
+      },
+      wheel: (e) => {
+        e.preventDefault();
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
         
-        this.draw(e.touches[0]);
-      }
-    });
-    this.canvas.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      
-      if (e.touches.length < 2) {
-        this.isPinching = false;
-        this.lastPinchDistance = 0;
-        this.lastPanPoint = null;
+        // ズーム倍率を計算
+        const zoomIntensity = 0.1;
+        const delta = e.deltaY < 0 ? 1 : -1;
+        const zoom = Math.exp(delta * zoomIntensity);
         
-        // 全てのタッチが終了した場合、短いクールダウンを開始
-        if (e.touches.length === 0 && this.isMultiTouch) {
-          console.log('全タッチ終了 - シンプルクールダウン開始');
-          this.multiTouchCooldown = true;
-          this.isMultiTouch = false;
+        this.zoomAt(mouseX, mouseY, zoom);
+      },
+      touchstart: (e) => {
+        e.preventDefault();
+        
+        if (e.touches.length === 2) {
+          // ピンチジェスチャー開始
+          this.isPinching = true;
+          this.isMultiTouch = true;
           this.lastMultiTouchTime = Date.now();
-          
-          // 短いクールダウン時間（200ms）
-          setTimeout(() => {
-            this.multiTouchCooldown = false;
-            console.log('クールダウン終了 - 描画再開可能');
-          }, 200);
+          this.lastPinchDistance = this.getPinchDistance(e.touches);
+          this.pinchCenter = this.getPinchCenter(e.touches);
+          this.lastPanPoint = this.getPinchCenter(e.touches);
+          console.log('ピンチジェスチャー開始');
+        } else if (e.touches.length === 1 && !this.isPinching && !this.multiTouchCooldown) {
+          // 通常のタッチ描画
+          this.startDrawing(e.touches[0]);
         }
-      }
-      
-      if (e.touches.length === 0 && !this.multiTouchCooldown) {
-        // 消しゴム終了処理を先に実行
-        if (this.currentTool === 'eraser' && this.isEraserPressed) {
-          this.stopEraserOperation();
+      },
+      touchmove: (e) => {
+        e.preventDefault();
+        
+        if (e.touches.length === 2 && this.isPinching) {
+          // ピンチジェスチャー処理
+          const currentDistance = this.getPinchDistance(e.touches);
+          const currentCenter = this.getPinchCenter(e.touches);
+          
+          // ズーム処理
+          if (this.lastPinchDistance > 0) {
+            const zoom = currentDistance / this.lastPinchDistance;
+            this.zoomAt(currentCenter.x, currentCenter.y, zoom);
+          }
+          
+          // パン（移動）処理
+          if (this.lastPanPoint) {
+            const dx = currentCenter.x - this.lastPanPoint.x;
+            const dy = currentCenter.y - this.lastPanPoint.y;
+            this.translateX += dx;
+            this.translateY += dy;
+            this.redrawCanvas();
+          }
+          
+          this.lastPinchDistance = currentDistance;
+          this.pinchCenter = currentCenter;
+          this.lastPanPoint = currentCenter;
+        } else if (e.touches.length === 1 && !this.isPinching && !this.multiTouchCooldown) {
+          // 通常の1本指移動
+          if (!this.isDrawing && !this.isDraggingTextBox && !this.isResizing) {
+            this.updateCursorForPosition(e.touches[0]);
+          }
+          
+          // 消しゴムプレビューの更新（タッチデバイス用）
+          if (this.currentTool === 'eraser') {
+            this.updateEraserPreview(e.touches[0]);
+          } else {
+            this.showEraserPreview = false;
+          }
+          
+          this.draw(e.touches[0]);
+        }
+      },
+      touchend: (e) => {
+        e.preventDefault();
+        
+        if (e.touches.length < 2) {
+          this.isPinching = false;
+          this.lastPinchDistance = 0;
+          this.lastPanPoint = null;
+          
+          // 全てのタッチが終了した場合、短いクールダウンを開始
+          if (e.touches.length === 0 && this.isMultiTouch) {
+            console.log('全タッチ終了 - シンプルクールダウン開始');
+            this.multiTouchCooldown = true;
+            this.isMultiTouch = false;
+            this.lastMultiTouchTime = Date.now();
+            
+            // 短いクールダウン時間（200ms）
+            setTimeout(() => {
+              this.multiTouchCooldown = false;
+              console.log('クールダウン終了 - 描画再開可能');
+            }, 200);
+          }
         }
         
-        this.stopDrawing(e.changedTouches[0]);
-        // 全てのタッチが終了した時に消しゴムプレビューをクリア
-        if (this.currentTool === 'eraser') {
-          this.showEraserPreview = false;
-          this.eraserPreviewCoords = null;
-          this.cancelTouchEraserPreview();
-          this.redrawCanvas();
+        if (e.touches.length === 0 && !this.multiTouchCooldown) {
+          this.stopDrawing(e.changedTouches[0]);
+          // 全てのタッチが終了した時に消しゴムプレビューをクリア
+          if (this.currentTool === 'eraser') {
+            this.showEraserPreview = false;
+            this.eraserPreviewCoords = null;
+            this.cancelTouchEraserPreview();
+            this.redrawCanvas();
+          }
+        }
+      },
+      touchcancel: () => {
+        this.cancelTouchEraserPreview();
+        this.showEraserPreview = false;
+        this.isPinching = false;
+        this.redrawCanvas();
+      },
+      contextmenu: (e) => e.preventDefault(),
+      keydown: (e) => {
+        if (e.key === 'Shift') {
+          this.isShiftPressed = true;
+          this.updateCursor();
+          this.canvas.classList.add('shift-mode');
+          
+          // Shiftインジケーターを表示
+          const indicator = document.getElementById('shift-indicator');
+          if (indicator) {
+            indicator.classList.add('active');
+          }
+        }
+      },
+      keyup: (e) => {
+        if (e.key === 'Shift') {
+          this.isShiftPressed = false;
+          this.updateCursor();
+          this.canvas.classList.remove('shift-mode');
+          
+          // Shiftインジケーターを非表示
+          const indicator = document.getElementById('shift-indicator');
+          if (indicator) {
+            indicator.classList.remove('active');
+          }
         }
       }
-    });
+    };
+
+    // マウスイベント
+    this.canvas.addEventListener('mousedown', this.boundHandlers.mousedown);
+    this.canvas.addEventListener('mousemove', this.boundHandlers.mousemove);
+    this.canvas.addEventListener('mouseup', this.boundHandlers.mouseup);
+    this.canvas.addEventListener('mouseleave', this.boundHandlers.mouseleave);
+    this.canvas.addEventListener('wheel', this.boundHandlers.wheel);
     
-    // タッチがキャンバスから離れたときの処理
-    this.canvas.addEventListener('touchcancel', () => {
-      this.cancelTouchEraserPreview();
-      this.showEraserPreview = false;
-      this.isPinching = false;
-      this.redrawCanvas();
-    });
-    
-    // タッチ用の消しゴムタッチスタートイベント（タッチ開始時に消去開始）
-    this.canvas.addEventListener('touchstart', (e) => {
-      if (this.currentTool === 'eraser' && e.touches.length === 1 && !this.multiTouchCooldown) {
-        // シングルタッチの場合のみ消しゴム開始
-        this.startEraserOperation(e.touches[0]);
-      }
-    });
+    // タッチイベント
+    this.canvas.addEventListener('touchstart', this.boundHandlers.touchstart);
+    this.canvas.addEventListener('touchmove', this.boundHandlers.touchmove);
+    this.canvas.addEventListener('touchend', this.boundHandlers.touchend);
+    this.canvas.addEventListener('touchcancel', this.boundHandlers.touchcancel);
     
     // キーボードイベント（Shiftキー用）
     this.isShiftPressed = false;
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Shift') {
-        this.isShiftPressed = true;
-        this.updateCursor();
-        this.canvas.classList.add('shift-mode');
-        
-        // Shiftインジケーターを表示
-        const indicator = document.getElementById('shift-indicator');
-        if (indicator) {
-          indicator.classList.add('active');
-        }
-      }
-    });
-    document.addEventListener('keyup', (e) => {
-      if (e.key === 'Shift') {
-        this.isShiftPressed = false;
-        this.updateCursor();
-        this.canvas.classList.remove('shift-mode');
-        
-        // Shiftインジケーターを非表示
-        const indicator = document.getElementById('shift-indicator');
-        if (indicator) {
-          indicator.classList.remove('active');
-        }
-      }
-    });
+    document.addEventListener('keydown', this.boundHandlers.keydown);
+    document.addEventListener('keyup', this.boundHandlers.keyup);
     
     // コンテキストメニューを無効化
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('contextmenu', this.boundHandlers.contextmenu);
+    
+    // イベントリスナー設定完了のフラグを設定
+    this.eventListenersSetup = true;
+    console.log('setupEventListeners完了');
   }
 
   getCoordinates(event) {
     const rect = this.canvas.getBoundingClientRect();
-    let x, y;
-    
-    // タッチイベントの場合とマウスイベントの場合を分岐
-    if (event.touches && event.touches.length > 0) {
-      // タッチイベント（iPad等）
-      x = event.touches[0].clientX - rect.left;
-      y = event.touches[0].clientY - rect.top;
-    } else if (event.changedTouches && event.changedTouches.length > 0) {
-      // タッチ終了イベント
-      x = event.changedTouches[0].clientX - rect.left;
-      y = event.changedTouches[0].clientY - rect.top;
-    } else {
-      // マウスイベント（PC）
-      x = event.clientX - rect.left;
-      y = event.clientY - rect.top;
-    }
+    let x = event.clientX - rect.left;
+    let y = event.clientY - rect.top;
     
     // 高DPI対応
     const dpr = window.devicePixelRatio || 1;
@@ -430,21 +414,8 @@ export class DrawingCanvas {
     
     // グリッドスナップ機能（テキストツールと消しゴムツールは除外）
     if (this.snapToGrid) {
-      // グリッド連続直線ツールは0.5マス（80px）単位でスナップ
-      if (this.currentTool === 'polyline-grid') {
-        const halfGrid = this.gridSize / 2;
-        console.log('ポリライングリッド スナップ:', { 
-          gridSize: this.gridSize, 
-          halfGrid: halfGrid,
-          originalX: x,
-          originalY: y
-        });
-        x = Math.round(x / halfGrid) * halfGrid;
-        y = Math.round(y / halfGrid) * halfGrid;
-        console.log('スナップ後:', { x, y });
-      }
       // ペンツール、テキストツール、消しゴムツール以外はグリッドにスナップ
-      else if (this.currentTool !== 'pen' && 
+      if (this.currentTool !== 'pen' && 
           this.currentTool !== 'text-horizontal' && 
           this.currentTool !== 'text-vertical' &&
           this.currentTool !== 'eraser') {
@@ -483,7 +454,34 @@ export class DrawingCanvas {
   }
 
   startDrawing(event) {
-    console.log('startDrawing called with tool:', this.currentTool);
+    console.log('=== startDrawing呼び出し ===', {
+      tool: this.currentTool,
+      isDrawing: this.isDrawing,
+      timestamp: Date.now()
+    });
+    
+    // startDrawing実行中フラグによる重複防止
+    if (this.isStartDrawingInProgress) {
+      console.log('startDrawing実行中のため重複実行をスキップ');
+      return;
+    }
+    this.isStartDrawingInProgress = true;
+    
+    // 既に描画中の場合は重複を防ぐ
+    if (this.isDrawing) {
+      console.log('既に描画中のため重複描画をスキップ');
+      this.isStartDrawingInProgress = false;
+      return;
+    }
+    
+    // 非常に短時間の重複クリックを防ぐ
+    const now = Date.now();
+    if (this.lastStartDrawingTime && (now - this.lastStartDrawingTime) < 50) {
+      console.log('短時間の重複クリックを防止');
+      this.isStartDrawingInProgress = false;
+      return;
+    }
+    this.lastStartDrawingTime = now;
     
     // 描画設定を確実に適用（色変更が反映されるように）
     this.ctx.strokeStyle = this.strokeColor;
@@ -492,29 +490,28 @@ export class DrawingCanvas {
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     
-    // シンプルなマルチタッチ検出
-    if (event.touches && event.touches.length > 1) {
-      this.isMultiTouch = true;
-      this.lastMultiTouchTime = Date.now();
-      console.log('マルチタッチ検出 - 描画無効化');
-      return;
-    }
-    
-    // シンプルなクールダウンチェック
-    if (this.multiTouchCooldown) {
-      console.log('クールダウン中のため描画をスキップ');
-      return;
-    }
-    
-    // マルチタッチ中は描画しない
-    if (this.isMultiTouch) {
-      console.log('マルチタッチ中のため描画をスキップ');
-      return;
-    }
-    
-    // タッチデバイスで消しゴムツールの場合、プレビューを表示
+      // シンプルなマルチタッチ検出
+      if (event.touches && event.touches.length > 1) {
+        this.isMultiTouch = true;
+        this.lastMultiTouchTime = Date.now();
+        console.log('マルチタッチ検出 - 描画無効化');
+        return;
+      }
+      
+      // シンプルなクールダウンチェック
+      if (this.multiTouchCooldown) {
+        console.log('クールダウン中のため描画をスキップ');
+        return;
+      }
+      
+      // マルチタッチ中は描画しない
+      if (this.isMultiTouch) {
+        console.log('マルチタッチ中のため描画をスキップ');
+        return;
+      }    // タッチデバイスで消しゴムツールの場合、プレビューを表示
     if (this.currentTool === 'eraser' && event.type && event.type.includes('touch')) {
       this.startTouchEraserPreview(event);
+      this.isStartDrawingInProgress = false;
       return;
     }
     
@@ -527,8 +524,11 @@ export class DrawingCanvas {
     const coords = this.getCoordinates(event);
     
     // 【全ツール共通】テキストボックス操作を最優先で処理
-    // 最優先：選択中のテキストボックスのリサイズハンドルをチェック
-    if (this.selectedTextBox) {
+    // テキストボックス系ツール以外の場合は、テキストボックス関連の処理をスキップ
+    const isTextTool = ['text-horizontal', 'text-vertical'].includes(this.currentTool);
+    
+    // 最優先：選択中のテキストボックスのリサイズハンドルをチェック（テキストツール時のみ）
+    if (isTextTool && this.selectedTextBox) {
       const resizeHandle = this.getResizeHandle(coords, this.selectedTextBox);
       if (resizeHandle) {
         console.log('選択中テキストボックスのリサイズハンドルをクリック:', resizeHandle);
@@ -540,58 +540,60 @@ export class DrawingCanvas {
       }
     }
     
-    // 次に優先：他のテキストボックスのリサイズハンドルをチェック
-    for (let i = this.allPaths.length - 1; i >= 0; i--) {
-      const pathData = this.allPaths[i];
-      if (pathData.tool === 'textbox' && pathData !== this.selectedTextBox) {
-        const resizeHandle = this.getResizeHandle(coords, pathData);
-        if (resizeHandle) {
-          console.log('他のテキストボックスのリサイズハンドルをクリック:', resizeHandle);
-          // テキストボックスを選択状態にする
-          this.allPaths.forEach(path => {
-            if (path.tool === 'textbox') {
-              path.isSelected = false;
-            }
-          });
-          this.setSelectedTextBox(pathData);
-          this.isResizing = true;
-          this.resizeHandle = resizeHandle;
-          this.dragOffset = { x: coords.x, y: coords.y };
-          this.redrawCanvas();
+    // 次に優先：他のテキストボックスのリサイズハンドルをチェック（テキストツール時のみ）
+    if (isTextTool) {
+      for (let i = this.allPaths.length - 1; i >= 0; i--) {
+        const pathData = this.allPaths[i];
+        if (pathData.tool === 'textbox' && pathData !== this.selectedTextBox) {
+          const resizeHandle = this.getResizeHandle(coords, pathData);
+          if (resizeHandle) {
+            console.log('他のテキストボックスのリサイズハンドルをクリック:', resizeHandle);
+            // テキストボックスを選択状態にする
+            this.allPaths.forEach(path => {
+              if (path.tool === 'textbox') {
+                path.isSelected = false;
+              }
+            });
+            this.setSelectedTextBox(pathData);
+            this.isResizing = true;
+            this.resizeHandle = resizeHandle;
+            this.dragOffset = { x: coords.x, y: coords.y };
+            this.redrawCanvas();
           return;
         }
       }
     }
     
-    // テキストボックス本体をクリックしたかチェック（全ツールで有効）
-    const clickedTextBox = this.getTextBoxAt(coords);
-    
-    if (clickedTextBox) {
-      console.log('テキストボックスをクリックしました（ツール:', this.currentTool, ')');
+    // テキストボックス本体をクリックしたかチェック（テキストツール時のみ）
+    if (isTextTool) {
+      const clickedTextBox = this.getTextBoxAt(coords);
       
-      // 選択状態にする
-      this.allPaths.forEach(path => {
-        if (path.tool === 'textbox') {
-          path.isSelected = false;
+      if (clickedTextBox) {
+        console.log('テキストボックスをクリックしました（ツール:', this.currentTool, ')');
+        
+        // 選択状態にする
+        this.allPaths.forEach(path => {
+          if (path.tool === 'textbox') {
+            path.isSelected = false;
+          }
+        });
+        this.setSelectedTextBox(clickedTextBox);
+        
+        // ダブルクリックの場合は編集モードに（テキストボックス全体で判定）
+        if (this.lastClickTime && Date.now() - this.lastClickTime < 500) {
+          console.log('ダブルクリック検出、編集モード開始');
+          this.editTextBox(clickedTextBox);
+          this.lastClickTime = 0; // リセット
+          return;
         }
-      });
-      this.setSelectedTextBox(clickedTextBox);
-      
-      // ダブルクリックの場合は編集モードに（テキストボックス全体で判定）
-      if (this.lastClickTime && Date.now() - this.lastClickTime < 500) {
-        console.log('ダブルクリック検出、編集モード開始');
-        this.editTextBox(clickedTextBox);
-        this.lastClickTime = 0; // リセット
-        return;
-      }
-      
-      // 移動エリアをクリックした場合は移動準備
-      if (this.isPointInMoveArea(coords, clickedTextBox)) {
-        console.log('移動エリアをクリック、移動準備開始');
-        this.isDraggingTextBox = true;
-        this.dragOffset = {
-          x: coords.x - clickedTextBox.x,
-          y: coords.y - clickedTextBox.y
+        
+        // 移動エリアをクリックした場合は移動準備
+        if (this.isPointInMoveArea(coords, clickedTextBox)) {
+          console.log('移動エリアをクリック、移動準備開始');
+          this.isDraggingTextBox = true;
+          this.dragOffset = {
+            x: coords.x - clickedTextBox.x,
+            y: coords.y - clickedTextBox.y
         };
         this.lastClickTime = Date.now();
         this.redrawCanvas();
@@ -622,6 +624,42 @@ export class DrawingCanvas {
       return;
     }
     
+    // 開口部をクリックしたかチェック（全ツールで有効）
+    const clickedOpening = this.getOpeningAt(coords);
+    console.log('開口部クリックチェック:', {
+      coords: coords,
+      openingsCount: this.openings.length,
+      clickedOpening: clickedOpening,
+      currentTool: this.currentTool
+    });
+    
+    if (clickedOpening) {
+      console.log('開口部をクリックしました');
+      
+      // 移動前に状態保存（開口部が実際に存在する場合のみ）
+      this.saveOpeningsState();
+      // 注意: ここでは操作履歴は変更しない（移動は新規作成ではない）
+      
+      // 他の開口部の選択を解除
+      this.openings.forEach(opening => {
+        opening.isSelected = false;
+      });
+      
+      // クリックした開口部を選択
+      clickedOpening.isSelected = true;
+      this.selectedOpening = clickedOpening;
+      
+      // 移動準備
+      this.isDraggingOpening = true;
+      this.openingDragOffset = {
+        x: coords.x - clickedOpening.x,
+        y: coords.y - clickedOpening.y
+      };
+      
+      this.redrawCanvas();
+      return;
+    }
+    
     // 【ここから先は通常の描画処理】
     // テキストボックス以外をクリックした場合、選択解除
     if (this.selectedTextBox) {
@@ -629,18 +667,26 @@ export class DrawingCanvas {
       this.redrawCanvas();
     }
     
-    // 消しゴムツール以外の場合のみ描画状態を設定
-    if (this.currentTool !== 'eraser') {
-      // 開口部の場合は特別処理（クリック一回で完了）
-      if (this.currentTool === 'door' && this.doorType === 'smallbox') {
-        this.drawSmallBoxInstantly(coords);
-        return; // 描画状態には入らない
-      }
-      
-      this.isDrawing = true;
-      this.startPoint = coords;
-      this.currentPath = [coords];
-      this.canvas.classList.add('drawing');
+    // 開口部以外をクリックした場合、開口部の選択解除
+    if (this.selectedOpening) {
+      this.openings.forEach(opening => {
+        opening.isSelected = false;
+      });
+      this.selectedOpening = null;
+      this.redrawCanvas();
+    }
+    
+    this.isDrawing = true;
+    this.startPoint = coords;
+    this.currentPath = [coords];
+    
+    this.canvas.classList.add('drawing');
+    
+    // 開口部ツールの場合、プレビューを開始
+    if (this.currentTool === 'door' && this.doorType === 'opening') {
+      this.showOpeningPreview = true;
+      this.openingPreviewCoords = coords;
+      this.redrawCanvas(); // プレビューを表示
     }
     
     if (this.currentTool === 'pen') {
@@ -656,65 +702,20 @@ export class DrawingCanvas {
       
       this.ctx.beginPath();
       this.ctx.moveTo(coords.x, coords.y);
-    } else if (this.currentTool === 'polyline-grid') {
-      // グリッド連続直線ツール（ペンツールと同じ描画方式）
-      this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
-      
-      console.log('Polyline-grid drawing start - setting color:', this.strokeColor);
-      this.ctx.strokeStyle = this.strokeColor;
-      this.ctx.lineWidth = this.strokeWidth + 6; // 直線ツールと同じ太さ
-      this.ctx.lineCap = 'round';
-      this.ctx.lineJoin = 'round';
-      
-      this.ctx.beginPath();
-      this.ctx.moveTo(coords.x, coords.y);
+    } else if (this.currentTool === 'eraser') {
+      // 消しゴム操作開始
+      this.eraserOperationActive = true;
+      this.eraserOperationChanges = [];
+      console.log('消しゴム操作開始');
+      this.eraseAtPoint(coords);
     } else if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
       // 新仕様：ドラッグでのテキストボックス作成は無効化
+      this.isStartDrawingInProgress = false;
       return;
     }
-  }
-
-  // 開口部を即座に描画するメソッド
-  drawSmallBoxInstantly(coords) {
-    console.log('📦 開口部即座描画開始:', coords);
     
-    // 0.25マス = gridSize / 4
-    const boxSize = this.gridSize / 4;
-    
-    // クリック位置を0.25マスグリッドにスナップ（中央配置）
-    const quarterGrid = this.gridSize / 4;
-    const snappedCenterX = Math.round(coords.x / quarterGrid) * quarterGrid;
-    const snappedCenterY = Math.round(coords.y / quarterGrid) * quarterGrid;
-    
-    // スナップした中央位置から左上角を計算
-    const boxX = snappedCenterX - boxSize / 2;
-    const boxY = snappedCenterY - boxSize / 2;
-    
-    // 開口部のパスデータを作成（左上角の座標で保存）
-    const smallBoxData = {
-      tool: 'door',
-      doorType: 'smallbox',
-      startPoint: { x: boxX, y: boxY },
-      endPoint: { x: boxX + boxSize, y: boxY + boxSize },
-      strokeColor: this.strokeColor,
-      strokeWidth: this.strokeWidth,
-      lineStyle: this.lineStyle
-    };
-    
-    // パス履歴に追加
-    this.allPaths.push(smallBoxData);
-    this.lastOperationType = 'path';
-    this.redoStack = []; // redo履歴をクリア
-    
-    // アンドゥ/リドゥボタンの状態を更新
-    this.updateUndoRedoButtons();
-    
-    console.log('開口部をパス履歴に追加:', smallBoxData);
-    
-    // キャンバスを再描画
-    this.redrawCanvas();
-    
-    console.log('📦 開口部即座描画完了');
+    // startDrawing完了
+    this.isStartDrawingInProgress = false;
   }
 
   draw(event) {
@@ -737,15 +738,24 @@ export class DrawingCanvas {
       return;
     }
     
-    // 消しゴムツールで押し続けている場合は継続的に消去
-    if (this.currentTool === 'eraser' && this.isEraserPressed) {
-      this.eraseAtPoint(coords);
-      return;
-    }
-    
     // リサイズ中の場合
     if (this.isResizing && this.selectedTextBox && this.resizeHandle) {
       this.resizeTextBox(this.selectedTextBox, this.resizeHandle, coords);
+      this.redrawCanvas();
+      return;
+    }
+    
+    // 開口部のドラッグ中の場合
+    if (this.isDraggingOpening && this.selectedOpening) {
+      this.selectedOpening.x = coords.x - this.openingDragOffset.x;
+      this.selectedOpening.y = coords.y - this.openingDragOffset.y;
+      this.redrawCanvas();
+      return;
+    }
+    
+    // 開口部プレビュー中の場合
+    if (this.showOpeningPreview && this.currentTool === 'door' && this.doorType === 'opening') {
+      this.openingPreviewCoords = coords;
       this.redrawCanvas();
       return;
     }
@@ -775,24 +785,9 @@ export class DrawingCanvas {
     
     if (!this.isDrawing) return;
     
-    // マウス移動の間引き処理（描画中も適用）
-    const now = performance.now();
-    if (this.lastMouseMoveTime && (now - this.lastMouseMoveTime) < this.mouseMoveThrottleMs) {
-      return;
-    }
-    this.lastMouseMoveTime = now;
-    
     this.currentPath.push(coords);
     
-    console.error('draw メソッド: ツール確認', { 
-      currentTool: this.currentTool, 
-      isDrawing: this.isDrawing,
-      instanceId: this.constructor.name,
-      thisRef: this === window.drawingCanvas ? 'GLOBAL' : 'UNKNOWN'
-    });
-    
     if (this.currentTool === 'pen') {
-      console.error('ペンツール分岐に入りました');
       // ズーム変換を適用
       this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
       
@@ -805,20 +800,9 @@ export class DrawingCanvas {
       
       this.ctx.lineTo(coords.x, coords.y);
       this.ctx.stroke();
-    } else if (this.currentTool === 'polyline-grid') {
-      console.error('グリッド連続直線ツール分岐に入りました');
-      // ズーム変換を適用
-      this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
-      
-      // 描画設定を確実に適用
-      console.log('Polyline-grid drawing - applying color:', this.strokeColor);
-      this.ctx.strokeStyle = this.strokeColor;
-      this.ctx.lineWidth = this.strokeWidth + 6; // 直線ツールと同じ太さ
-      this.ctx.lineCap = 'round';
-      this.ctx.lineJoin = 'round';
-      
-      this.ctx.lineTo(coords.x, coords.y);
-      this.ctx.stroke();
+    } else if (this.currentTool === 'eraser') {
+      // 消しゴム機能
+      this.eraseAtPoint(coords);
     } else {
       // 図形描画の場合、リアルタイムプレビュー
       // 直線ツールでShiftキーが押されている場合、水平・垂直線に制限
@@ -872,10 +856,20 @@ export class DrawingCanvas {
       return;
     }
     
+    // 開口部のドラッグ終了
+    if (this.isDraggingOpening) {
+      this.isDraggingOpening = false;
+      return;
+    }
+    
     if (!this.isDrawing) return;
     
     this.isDrawing = false;
     this.canvas.classList.remove('drawing');
+    
+    // 開口部プレビューを終了
+    this.showOpeningPreview = false;
+    this.openingPreviewCoords = null;
     
     let coords = this.getCoordinates(event);
     
@@ -895,9 +889,20 @@ export class DrawingCanvas {
     if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
       // テキストボックスはボタンクリック時に作成済みのため、ここでは何もしない
       // this.createTextBox(this.startPoint, coords);
+    } else if (this.currentTool === 'door' && this.doorType === 'opening') {
+      // 開口部の場合は特別処理 - タッチを離した場所（coords）に配置
+      // 重要: 開口部作成時のみ操作履歴に記録される
+      this.createOpening(coords); // startPointではなくcoordsを使用
+    } else if (this.currentTool === 'eraser') {
+      // 消しゴムの場合は特別処理
+      console.log('消しゴム操作終了 - パス追加なし');
+      // 消しゴム操作完了処理
+      if (this.eraserOperationActive && this.eraserOperationChanges.length > 0) {
+        this.finishEraserOperation();
+      }
     } else {
       // 直線、四角形、扉は太い線で保存
-      const actualStrokeWidth = (this.currentTool === 'line' || this.currentTool === 'rectangle' || this.currentTool === 'door' || this.currentTool === 'polyline-grid') 
+      const actualStrokeWidth = (this.currentTool === 'line' || this.currentTool === 'rectangle' || this.currentTool === 'door') 
         ? this.strokeWidth + 6 
         : this.strokeWidth;
         
@@ -931,27 +936,30 @@ export class DrawingCanvas {
       
       
       // 最後の操作タイプを設定
-      if (this.currentTool === 'eraser') {
-        // 消しゴムはクリック処理で履歴管理されるため、ここでは何もしない
-        console.log('消しゴム操作 - クリック処理で完結');
-      } else {
-        // 通常のパス追加
-        this.allPaths.push(strokeData);
-        this.lastOperationType = 'path';
-        console.log('パス追加:', {
-          tool: strokeData.tool,
-          pathCount: this.allPaths.length,
-          lastOperationType: this.lastOperationType
-        });
-        
-        // アンドゥ/リドゥボタンの状態を更新
-        this.updateUndoRedoButtons();
-      }
+      // 通常のパス追加
+      console.log('=== パス追加処理開始 ===', {
+        tool: strokeData.tool,
+        currentPathsLength: this.allPaths.length,
+        timestamp: Date.now()
+      });
+      
+      this.allPaths.push(strokeData);
+      this.operationHistory.push('path'); // 操作履歴に記録
+      this.eraserDeletedPaths.push(false); // 通常作成なのでfalse
+      
+      console.log('=== パス追加完了 ===', {
+        tool: strokeData.tool,
+        pathCount: this.allPaths.length,
+        operationHistory: this.operationHistory,
+        doorType: strokeData.doorType || 'なし',
+        coordinates: strokeData.startPoint && strokeData.endPoint ? 
+          `${strokeData.startPoint.x},${strokeData.startPoint.y} → ${strokeData.endPoint.x},${strokeData.endPoint.y}` : 'なし'
+      });
       
       this.redoStack = []; // Redo履歴をクリア
       
-      // ペンツールまたはグリッド連続直線ツールの場合、図形認識を実行
-      if (this.currentTool === 'pen' || this.currentTool === 'polyline-grid') {
+      // ペンツールの場合、図形認識を実行
+      if (this.currentTool === 'pen') {
         this.emit('drawingComplete', this.currentPath);
       }
     }
@@ -960,8 +968,6 @@ export class DrawingCanvas {
     if (this.currentTool === 'eraser') {
       this.showEraserPreview = false;
       this.eraserPreviewCoords = null;
-      // 消しゴム操作終了
-      this.stopEraserOperation();
     }
     
     // 図形プレビューをクリア（描画完了時）
@@ -974,6 +980,9 @@ export class DrawingCanvas {
     if (this.allPaths.length > PERFORMANCE_CONFIG.OPTIMIZATION_THRESHOLD) {
       this.optimizePaths();
     }
+    
+    // startDrawing実行中フラグをリセット
+    this.isStartDrawingInProgress = false;
   }
 
   drawShape(start, end) {
@@ -1085,9 +1094,9 @@ export class DrawingCanvas {
         // 両開き戸
         this.drawDoubleDoor(doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
         break;
-      case 'smallbox':
-        // 開口部（0.25マス×0.25マス）
-        this.drawSmallBox(start, end);
+      case 'opening':
+        // 開口部 - 自由配置（四方向固定しない）
+        this.drawOpening(doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
         break;
       // 後方互換性のため古い値もサポート
       case 'single-left':
@@ -1107,20 +1116,20 @@ export class DrawingCanvas {
     const intStart = { x: Math.floor(start.x) + 0.5, y: Math.floor(start.y) + 0.5 };
     const intEnd = { x: Math.floor(end.x) + 0.5, y: Math.floor(end.y) + 0.5 };
     
-    // 扉開口部の枠線（壁と同じ太さの6px、中を背景色で塗りつぶし）
+    // 扉開口部の枠線（壁と同じ太さの6px、中を白で塗りつぶし）
     this.ctx.save();
     
-    // まず太い背景色線で壁を上書き（背景）
+    // まず太い白線で壁を上書き（背景）
     this.ctx.lineWidth = 6;
-    this.ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    this.ctx.strokeStyle = '#ffffff';
     this.ctx.beginPath();
     this.ctx.moveTo(intStart.x, intStart.y);
     this.ctx.lineTo(intEnd.x, intEnd.y);
     this.ctx.stroke();
     
-    // まず太い背景色線で壁を上書き（背景）
+    // まず太い白線で壁を上書き（背景）
     this.ctx.lineWidth = 6;
-    this.ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    this.ctx.strokeStyle = '#ffffff';
     this.ctx.beginPath();
     this.ctx.moveTo(intStart.x, intStart.y);
     this.ctx.lineTo(intEnd.x, intEnd.y);
@@ -1147,7 +1156,7 @@ export class DrawingCanvas {
     // 開き弧を描画（細い線）- 端から端まで
     this.ctx.save();
     this.ctx.lineWidth = 1;
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 片開き扉の弧線は常に黒色で固定
     this.ctx.beginPath();
     this.ctx.arc(hingePoint.x, hingePoint.y, radius, 
                  Math.min(baseAngle, openAngle), 
@@ -1161,7 +1170,7 @@ export class DrawingCanvas {
     
     this.ctx.save();
     this.ctx.lineWidth = 1; // 2pxから1pxに変更
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 片開き扉の位置線は常に黒色で固定
     this.ctx.beginPath();
     this.ctx.moveTo(hingePoint.x, hingePoint.y);
     this.ctx.lineTo(doorEndX, doorEndY);
@@ -1177,12 +1186,12 @@ export class DrawingCanvas {
     const intStart = { x: Math.floor(start.x) + 0.5, y: Math.floor(start.y) + 0.5 };
     const intEnd = { x: Math.floor(end.x) + 0.5, y: Math.floor(end.y) + 0.5 };
     
-    // 扉開口部の枠線（壁と同じ太さの6px、中を背景色で塗りつぶし）
+    // 扉開口部の枠線（壁と同じ太さの6px、中を白で塗りつぶし）
     this.ctx.save();
     
-    // まず太い背景色線で壁を上書き（背景）
+    // まず太い白線で壁を上書き（背景）
     this.ctx.lineWidth = 6;
-    this.ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    this.ctx.strokeStyle = '#ffffff';
     this.ctx.beginPath();
     this.ctx.moveTo(intStart.x, intStart.y);
     this.ctx.lineTo(intEnd.x, intEnd.y);
@@ -1197,7 +1206,7 @@ export class DrawingCanvas {
     // 中央分割マーク（垂直の短い線）- 円弧と同じ細さ
     this.ctx.save();
     this.ctx.lineWidth = 1; // 円弧と同じ細さに変更
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 両開き扉の分割線は常に黒色で固定
     this.ctx.beginPath();
     const markSize = 4;
     this.ctx.moveTo(midX + perpDx * markSize, midY + perpDy * markSize);
@@ -1211,7 +1220,7 @@ export class DrawingCanvas {
     // 左側扉の開き弧（90度）- 中央から外側に開く
     this.ctx.save();
     this.ctx.lineWidth = 1;
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 両開き扉の弧線は常に黒色で固定
     this.ctx.beginPath();
     const leftOpenAngle = baseAngle - Math.PI/2; // 時計回りに90度
     // 角度の大小を正しく指定
@@ -1224,7 +1233,7 @@ export class DrawingCanvas {
     // 左側扉の位置（細い線）- 独立したsave/restore
     this.ctx.save();
     this.ctx.lineWidth = 1; // 細い線に変更
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 両開き扉の位置線は常に黒色で固定
     this.ctx.beginPath();
     const leftDoorX = Math.floor(intStart.x + Math.cos(leftOpenAngle) * radius) + 0.5;
     const leftDoorY = Math.floor(intStart.y + Math.sin(leftOpenAngle) * radius) + 0.5;
@@ -1236,7 +1245,7 @@ export class DrawingCanvas {
     // 右側扉の開き弧（90度）- 中央から外側に開く（左側の鏡像）
     this.ctx.save();
     this.ctx.lineWidth = 1;
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 両開き扉の弧線は常に黒色で固定
     this.ctx.beginPath();
     const rightBaseAngle = baseAngle + Math.PI; // 180度回転した基準角度
     const rightOpenAngle = rightBaseAngle + Math.PI/2; // 反時計回りに90度
@@ -1250,7 +1259,7 @@ export class DrawingCanvas {
     // 右側扉の位置（細い線）- 独立したsave/restore
     this.ctx.save();
     this.ctx.lineWidth = 1; // 細い線に変更
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 両開き扉の位置線は常に黒色で固定
     this.ctx.beginPath();
     const rightDoorX = Math.floor(intEnd.x + Math.cos(rightOpenAngle) * radius) + 0.5;
     const rightDoorY = Math.floor(intEnd.y + Math.sin(rightOpenAngle) * radius) + 0.5;
@@ -1260,32 +1269,10 @@ export class DrawingCanvas {
     this.ctx.restore();
   }
 
-  // キャンバス用開口部描画メソッド
-  drawSmallBox(start, end) {
-    console.log('📦 キャンバス用開口部描画開始:', { start, end });
-    
-    // 0.25マス = gridSize / 4
-    const boxSize = this.gridSize / 4;
-    
-    // startPointとendPointから開口部の位置を決定
-    // 即座描画の場合、startPointに箱を配置
-    const boxX = start.x;
-    const boxY = start.y;
-    
-    this.ctx.save();
-    
-    // 開口部の描画（薄いグレーの塗りつぶし）
-    this.ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
-    this.ctx.fillRect(boxX, boxY, boxSize, boxSize);
-    
-    // 境界線
-    this.ctx.lineWidth = 1;
-    this.ctx.strokeStyle = '#666666'; // 開口部は固定色（中間色のため変更なし）
-    this.ctx.strokeRect(boxX, boxY, boxSize, boxSize);
-    
-    this.ctx.restore();
-    
-    console.log('📦 キャンバス用開口部描画完了:', { boxX, boxY, boxSize });
+  drawOpening(start, end, perpDx, perpDy, width) {
+    // 開口部：2.5マス程度の四角形 - 自由配置
+    // この関数では実際の作成は行わず、stopDrawingで作成する
+    // 何もしない - stopDrawingで作成する
   }
 
   drawStairs(start, end) {
@@ -1294,7 +1281,7 @@ export class DrawingCanvas {
     
     this.ctx.save();
     this.ctx.lineWidth = 2;
-    this.ctx.strokeStyle = this.getShapeColor(); // ダークモード対応色
+    this.ctx.strokeStyle = '#000000'; // 階段は常に黒色で固定
     
     // 階段の方向ベクトル
     const dx = end.x - start.x;
@@ -1387,31 +1374,133 @@ export class DrawingCanvas {
     
     this.ctx.restore();
   }
+  
+  drawSingleOpening(opening) {
+    // 単一の開口部を描画
+    this.ctx.save();
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeStyle = '#000000'; // 開口部の枠線は常に黒色で固定
+    this.ctx.fillStyle = 'rgba(240, 240, 240, 0.9)'; // グレー塗りつぶし
+    
+    // 四角形を描画
+    this.ctx.beginPath();
+    this.ctx.rect(opening.x + 0.5, opening.y + 0.5, opening.width, opening.height);
+    this.ctx.fill();
+    this.ctx.stroke();
+    
+    // 選択されている場合は分かりやすい青い枠を描画
+    if (opening.isSelected) {
+      this.ctx.lineWidth = 3; // より太く
+      this.ctx.strokeStyle = '#0080ff'; // より明るい青
+      this.ctx.setLineDash([8, 4]); // より大きな点線
+      this.ctx.strokeRect(opening.x - 2, opening.y - 2, opening.width + 4, opening.height + 4);
+      this.ctx.setLineDash([]);
+      
+      // 中央に移動可能アイコン（十字）を表示
+      this.ctx.lineWidth = 2;
+      this.ctx.strokeStyle = '#0080ff';
+      const centerX = opening.x + opening.width / 2;
+      const centerY = opening.y + opening.height / 2;
+      const iconSize = 8;
+      
+      // 十字マーク
+      this.ctx.beginPath();
+      this.ctx.moveTo(centerX - iconSize, centerY);
+      this.ctx.lineTo(centerX + iconSize, centerY);
+      this.ctx.moveTo(centerX, centerY - iconSize);
+      this.ctx.lineTo(centerX, centerY + iconSize);
+      this.ctx.stroke();
+    }
+    
+    this.ctx.restore();
+  }
+
+  // 開口部をクリックしたかを判定
+  getOpeningAt(coords) {
+    for (let i = this.openings.length - 1; i >= 0; i--) {
+      const opening = this.openings[i];
+      if (coords.x >= opening.x && coords.x <= opening.x + opening.width &&
+          coords.y >= opening.y && coords.y <= opening.y + opening.height) {
+        return opening;
+      }
+    }
+    return null;
+  }
+
+  // 開口部を作成
+  createOpening(endPoint) {
+    // 現在の開口部状態を履歴に保存
+    this.saveOpeningsState();
+    
+    const gridSize = 20; // グリッドサイズ
+    const openingSize = gridSize * 2.5; // 2.5マス分のサイズ（50px）
+    
+    // 開口部オブジェクトを作成（タッチを離した場所を中心に配置）
+    const opening = {
+      x: Math.floor(endPoint.x) - openingSize / 2,
+      y: Math.floor(endPoint.y) - openingSize / 2,
+      width: openingSize,
+      height: openingSize,
+      isSelected: true // 作成時に選択状態にして分かりやすく
+    };
+    
+    // 他の開口部の選択を解除
+    this.openings.forEach(existingOpening => {
+      existingOpening.isSelected = false;
+    });
+    
+    // 開口部配列に追加
+    this.openings.push(opening);
+    this.selectedOpening = opening;
+    
+    // 実際に開口部が作成された時のみ操作履歴に記録
+    this.operationHistory.push('opening'); // 操作履歴に記録
+    this.eraserDeletedPaths.push(false); // 通常作成なのでfalse
+    console.log('開口部作成完了: operationHistory =', this.operationHistory);
+    
+    // 再描画
+    this.redrawCanvas();
+  }
+
+  // 開口部プレビューを描画
+  drawOpeningPreview() {
+    const gridSize = 20; // グリッドサイズ
+    const openingSize = gridSize * 2.5; // 2.5マス分のサイズ（50px）
+    
+    // プレビュー四角形の位置
+    const x = Math.floor(this.openingPreviewCoords.x) - openingSize / 2;
+    const y = Math.floor(this.openingPreviewCoords.y) - openingSize / 2;
+    
+    this.ctx.save();
+    
+    // 半透明の四角形を描画
+    this.ctx.fillStyle = 'rgba(240, 240, 240, 0.6)'; // より薄く
+    this.ctx.strokeStyle = '#0080ff'; // 青い枠
+    this.ctx.lineWidth = 2;
+    this.ctx.setLineDash([6, 3]); // 点線
+    
+    this.ctx.beginPath();
+    this.ctx.rect(x + 0.5, y + 0.5, openingSize, openingSize);
+    this.ctx.fill();
+    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+    
+    // プレビューであることを示すテキスト
+    this.ctx.fillStyle = '#0080ff';
+    this.ctx.font = '12px Arial';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText('開口部', x + openingSize / 2, y - 5);
+    
+    this.ctx.restore();
+  }
 
   redrawCanvas() {
-    // 既に再描画が要求されている場合は重複呼び出しを避ける
-    if (this.redrawRequested) return;
-    
-    this.redrawRequested = true;
-    
     // デバウンシング処理で不要な再描画を防止
     if (this.redrawTimeout) {
       cancelAnimationFrame(this.redrawTimeout);
     }
     
-    // パフォーマンス向上のため、再描画を間引く
-    const now = performance.now();
-    if (this.lastRedrawTime && (now - this.lastRedrawTime) < this.redrawThrottleMs) {
-      this.redrawTimeout = setTimeout(() => {
-        this.redrawRequested = false;
-        this._performRedraw();
-      }, this.redrawThrottleMs - (now - this.lastRedrawTime));
-      return;
-    }
-    
     this.redrawTimeout = requestAnimationFrame(() => {
-      this.redrawRequested = false;
-      this.lastRedrawTime = performance.now();
       this._performRedraw();
     });
   }
@@ -1441,20 +1530,6 @@ export class DrawingCanvas {
         this.ctx.lineWidth = pathData.strokeWidth;
         this.ctx.beginPath();
         pathData.path.forEach((point, index) => {
-          if (index === 0) {
-            this.ctx.moveTo(point.x, point.y);
-          } else {
-            this.ctx.lineTo(point.x, point.y);
-          }
-        });
-        this.ctx.stroke();
-      } else if (pathData.tool === 'polyline-grid') {
-        // グリッド連続直線ツールの場合、ペンツールと同じ描画方式
-        this.ctx.strokeStyle = pathData.color || pathData.strokeColor;
-        this.ctx.lineWidth = pathData.width || pathData.strokeWidth;
-        this.ctx.beginPath();
-        const points = pathData.points || pathData.path;
-        points.forEach((point, index) => {
           if (index === 0) {
             this.ctx.moveTo(point.x, point.y);
           } else {
@@ -1516,7 +1591,7 @@ export class DrawingCanvas {
           case 'door':
             // 扉の描画時は扉の種類も復元
             const savedDoorType = this.doorType;
-            this.doorType = pathData.doorType || 'single';
+            this.doorType = pathData.doorType || 'opening';
             this.drawDoor(pathData.startPoint, pathData.endPoint);
             this.doorType = savedDoorType;
             // 扉描画では各メソッド内でstroke()済みのため、stroke()をスキップ
@@ -1564,6 +1639,16 @@ export class DrawingCanvas {
       this.drawSelectionHandles(this.selectedTextBox);
     }
     
+    // 開口部を描画
+    this.openings.forEach(opening => {
+      this.drawSingleOpening(opening);
+    });
+    
+    // 開口部プレビューを描画
+    if (this.showOpeningPreview && this.openingPreviewCoords) {
+      this.drawOpeningPreview();
+    }
+    
     // 消しゴムプレビューの描画
     if (this.showEraserPreview && this.eraserPreviewCoords) {
       this.drawEraserPreview();
@@ -1572,24 +1657,6 @@ export class DrawingCanvas {
     // 図形プレビューの描画
     if (this.showShapePreview && this.startPoint && this.previewEndPoint) {
       this.drawShapePreview(this.startPoint, this.previewEndPoint);
-    }
-    
-    // 描画中のポリライングリッドパスを描画
-    if (this.isDrawing && this.currentTool === 'polyline-grid' && this.currentPath.length > 0) {
-      this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
-      this.ctx.strokeStyle = this.strokeColor;
-      this.ctx.lineWidth = this.strokeWidth + 6; // 直線ツールと同じ太さ
-      this.ctx.lineCap = 'round';
-      this.ctx.lineJoin = 'round';
-      this.ctx.beginPath();
-      this.currentPath.forEach((point, index) => {
-        if (index === 0) {
-          this.ctx.moveTo(point.x, point.y);
-        } else {
-          this.ctx.lineTo(point.x, point.y);
-        }
-      });
-      this.ctx.stroke();
     }
     
     // 変換をリセット
@@ -1783,19 +1850,11 @@ export class DrawingCanvas {
     const centerY = (start.y + end.y) / 2;
     const isVertical = this.currentTool === 'text-vertical';
     
-    // フォントサイズに基づいた適切なサイズを設定
-    const fontSize = this.fontSize;
-    let actualWidth, actualHeight;
-    
-    if (isVertical) {
-      // 縦書き：3文字分の幅、10文字分の高さ
-      actualWidth = Math.max(width, fontSize * 3);
-      actualHeight = Math.max(height, fontSize * 10);
-    } else {
-      // 横書き：10文字分の幅、1行分の高さ
-      actualWidth = Math.max(width, fontSize * 10);
-      actualHeight = Math.max(height, fontSize * 1.5); // 1行分の高さ
-    }
+    // 最小サイズを確保
+    const minWidth = isVertical ? 60 : 120;
+    const minHeight = 60;
+    const actualWidth = Math.max(width, minWidth);
+    const actualHeight = Math.max(height, minHeight);
     
     this.createTextBoxAuto(centerX, centerY, actualWidth, actualHeight, isVertical);
   }
@@ -1842,12 +1901,8 @@ export class DrawingCanvas {
     this.setSelectedTextBox(textBoxData);
     this.allPaths.push(textBoxData);
     this.redoStack = [];
-    this.lastOperationType = 'path'; // テキストボックスもpathとして扱う
-    
-    // アンドゥ/リドゥボタンの状態を更新
-    this.updateUndoRedoButtons();
-    
-    console.log('テキストボックス作成: lastOperationType = path');
+    this.operationHistory.push('path'); // テキストボックスもpathとして扱う、操作履歴に記録
+    console.log('テキストボックス作成: operationHistory =', this.operationHistory);
     console.log('作成されたテキストボックス:', textBoxData);
     console.log('allPaths配列:', this.allPaths);
     this.redrawCanvas();
@@ -1871,10 +1926,6 @@ export class DrawingCanvas {
       if (index > -1) {
         this.allPaths.splice(index, 1);
         console.log('重複テキストボックスを削除');
-        
-        // アンドゥ/リドゥボタンの状態を更新
-        this.updateUndoRedoButtons();
-        
         this.redrawCanvas();
       }
       return;
@@ -1888,10 +1939,12 @@ export class DrawingCanvas {
     
     // テキスト入力要素を作成
     if (textBoxData.isVertical) {
-      // 縦書きの場合もtextareaを使用（改行処理が簡単）
-      this.textInput = document.createElement('textarea');
-      this.textInput.value = textBoxData.text || '';
-      this.textInput.placeholder = '縦書きテキスト';
+      // 縦書きの場合はdivを使用（iPad対応）
+      this.textInput = document.createElement('div');
+      this.textInput.contentEditable = true;
+      this.textInput.setAttribute('role', 'textbox');
+      this.textInput.setAttribute('aria-multiline', 'true');
+      this.textInput.textContent = textBoxData.text || '';
     } else {
       // 横書きの場合はtextareaを使用
       this.textInput = document.createElement('textarea');
@@ -1943,15 +1996,6 @@ export class DrawingCanvas {
     this.textInput.style.background = 'rgba(255, 255, 255, 0.8)'; // より透明にして背景が見えるように
     this.textInput.style.border = '2px solid #007AFF';
     this.textInput.style.borderRadius = '4px';
-    
-    // 縦書きの場合は writing-mode を設定
-    if (textBoxData.isVertical) {
-      this.textInput.style.writingMode = 'vertical-rl';
-      this.textInput.style.textOrientation = 'upright';
-    } else {
-      this.textInput.style.writingMode = 'horizontal-tb';
-      this.textInput.style.textOrientation = 'mixed';
-    }
     this.textInput.style.padding = '2px';
     this.textInput.style.resize = 'none';
     this.textInput.style.zIndex = '1000';
@@ -2006,17 +2050,41 @@ export class DrawingCanvas {
     this.textInput.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this.cancelTextBoxEdit();
-      } else if (e.key === 'Enter' && e.ctrlKey) {
-        // Ctrl+Enterで入力完了（縦書き・横書き共通）
-        e.preventDefault();
-        this.finishTextBoxEdit();
+      } else if (e.key === 'Enter') {
+        if (textBoxData.isVertical && this.textInput.contentEditable) {
+          // 縦書きcontenteditable divの場合
+          if (e.ctrlKey) {
+            // Ctrl+Enterで入力完了
+            e.preventDefault();
+            this.finishTextBoxEdit();
+          } else {
+            // 通常のEnterで改行を挿入
+            e.preventDefault();
+            const selection = window.getSelection();
+            const range = selection.getRangeAt(0);
+            const br = document.createElement('br');
+            range.deleteContents();
+            range.insertNode(br);
+            range.setStartAfter(br);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        } else if (textBoxData.isVertical) {
+          // 縦書きtextareaの場合は通常のEnterで改行を許可
+          if (e.ctrlKey) {
+            // Ctrl+Enterで入力完了
+            e.preventDefault();
+            this.finishTextBoxEdit();
+          }
+        } else {
+          // 横書きの場合はCtrl+Enterで入力完了
+          if (e.ctrlKey) {
+            e.preventDefault();
+            this.finishTextBoxEdit();
+          }
+        }
       }
-      // 通常のEnterキーは改行として処理（preventDefault不要）
-    });
-    
-    // テキスト入力時の自動サイズ調整
-    this.textInput.addEventListener('input', () => {
-      this.adjustTextBoxSize(textBoxData);
     });
     
     container.appendChild(this.textInput);
@@ -2045,43 +2113,13 @@ export class DrawingCanvas {
     }, 10);
   }
 
-  // テキストボックスのサイズを内容に応じて自動調整
-  adjustTextBoxSize(textBoxData) {
-    if (!this.textInput) return;
-    
-    const text = this.textInput.value;
-    const lines = text.split('\n');
-    const adjustedFontSize = textBoxData.fontSize;
-    const dpr = window.devicePixelRatio || 1;
-    
-    if (textBoxData.isVertical) {
-      // 縦書きの場合：列数に応じて幅を調整
-      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
-      const newWidth = Math.max(adjustedFontSize * 3.5, adjustedFontSize * (maxLineLength + 1));
-      this.textInput.style.width = `${newWidth}px`;
-      
-      // テキストボックスデータも更新
-      textBoxData.width = newWidth * dpr;
-    } else {
-      // 横書きの場合：行数に応じて高さを調整
-      const lineCount = Math.max(lines.length, 1);
-      const lineHeight = adjustedFontSize * 1.3; // line-height: 1.3 に合わせる
-      const newHeight = Math.max(adjustedFontSize * 1.5, lineHeight * lineCount + 8); // padding分を考慮
-      this.textInput.style.height = `${newHeight / dpr}px`;
-      
-      // テキストボックスデータも更新
-      textBoxData.height = newHeight;
-    }
-    
-    // キャンバスを再描画してボックスサイズを更新
-    this.redrawCanvas();
-  }
-
   finishTextBoxEdit() {
     if (!this.textInput || !this.selectedTextBox) return;
     
-    // textareaから値を取得
-    const text = this.textInput.value.trim();
+    // テキストを取得（divとtextareaの両方に対応）
+    const text = (this.textInput.value !== undefined 
+      ? this.textInput.value 
+      : this.textInput.textContent || this.textInput.innerText || '').trim();
     this.selectedTextBox.text = text;
     
     this.removeTextInput();
@@ -2098,9 +2136,6 @@ export class DrawingCanvas {
       const index = this.allPaths.indexOf(this.selectedTextBox);
       if (index > -1) {
         this.allPaths.splice(index, 1);
-        
-        // アンドゥ/リドゥボタンの状態を更新
-        this.updateUndoRedoButtons();
       }
     }
     
@@ -2207,12 +2242,12 @@ export class DrawingCanvas {
         // 完全中央配置のための開始座標を計算
         const centerX = x + width / 2;
         const centerY = y + height / 2;
-        const startX = centerX + (totalTextWidth - columnSpacing) / 2; // 右端から開始
+        const startX = centerX - (totalTextWidth - columnSpacing) / 2;
         const startY = centerY - totalTextHeight / 2;
         
         inputLines.forEach((line, columnIndex) => {
           const chars = line.split('');
-          const columnX = startX - (columnIndex * columnSpacing); // 右から左に配置
+          const columnX = startX + (columnIndex * columnSpacing);
           
           chars.forEach((char, charIndex) => {
             const yy = startY + (charIndex * fontSize) + fontSize / 2;
@@ -2220,9 +2255,8 @@ export class DrawingCanvas {
           });
         });
       } else {
-        // 横テキスト：プリセットテキストは中央揃え、通常テキストは左揃え
-        const isPreset = textBoxData.isPreset || false;
-        this.ctx.textAlign = isPreset ? 'center' : 'left';
+        // 横テキスト：文字位置を改善（中央寄せ）
+        this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle'; // 中央ベースラインに変更
         
         // 改行と自動折り返しを処理
@@ -2254,12 +2288,12 @@ export class DrawingCanvas {
           }
         }
         
-        // 各行を描画（プリセットは中央揃え、通常は左揃え）
+        // 各行を描画（上下左右中央揃え）
         const totalTextHeight = allLines.length * lineHeight;
-        const startY = y + (height - totalTextHeight) / 2 + lineHeight / 2; // textBaseline='middle'に合わせて調整
+        const startY = y + (height - totalTextHeight) / 2 + fontSize/2;
         
         allLines.forEach((lineText, index) => {
-          const xx = isPreset ? x + width / 2 : x + padding; // プリセットは中央、通常は左端
+          const xx = x + padding;
           const yy = startY + (index * lineHeight);
           this.ctx.fillText(lineText, xx, yy);
         });
@@ -2733,22 +2767,30 @@ export class DrawingCanvas {
       }
     });
     
+    // テキストボックス関連の全ての状態をリセット
     if (this.selectedTextBox) {
       this.selectedTextBox = null;
       this.emit('textBoxDeselected');
     }
+    
+    // ドラッグとリサイズの状態をリセット
+    this.isDraggingTextBox = false;
+    this.isResizing = false;
+    this.resizeHandle = null;
+    this.dragOffset = { x: 0, y: 0 };
+    
+    // 再描画してハンドルを消去
+    this.redrawCanvas();
   }
 
   setTool(tool) {
-    console.error('ツール切り替え:', { from: this.currentTool, to: tool });
-    
-    // 描画中の場合は描画を完了させる
-    if (this.isDrawing && this.currentPath.length > 0) {
-      console.log('描画中のため、現在の描画を完了させます');
-      this.finishCurrentDrawing();
-    }
-    
     this.currentTool = tool;
+    
+    // テキストボックス系ツール以外に切り替える場合、テキストボックスの選択をクリア
+    const isTextTool = ['text-horizontal', 'text-vertical'].includes(tool);
+    if (!isTextTool && this.selectedTextBox) {
+      this.clearTextBoxSelection();
+    }
     
     // 消しゴムプレビューの状態をクリア（ツール切り替え時）
     this.showEraserPreview = false;
@@ -2773,78 +2815,6 @@ export class DrawingCanvas {
     
     // 画面を再描画してプレビューを消去
     this.redrawCanvas();
-  }
-
-  finishCurrentDrawing() {
-    if (!this.isDrawing || this.currentPath.length === 0) {
-      return;
-    }
-    
-    console.log('現在の描画を完了:', { 
-      tool: this.currentTool, 
-      pathLength: this.currentPath.length 
-    });
-    
-    switch (this.currentTool) {
-      case 'polyline-grid':
-        // ポリライン描画を完了
-        if (this.currentPath.length > 1) {
-          this.allPaths.push({
-            tool: 'polyline-grid',
-            color: this.strokeColor,
-            points: [...this.currentPath],
-            width: this.strokeWidth + 6  // 直線ツールと同じ太さに統一
-          });
-        }
-        break;
-        
-      case 'pen':
-        // ペン描画を完了
-        if (this.currentPath.length > 0) {
-          this.allPaths.push({
-            tool: 'pen',
-            color: this.strokeColor,
-            points: [...this.currentPath],
-            width: this.penWidth
-          });
-        }
-        break;
-        
-      case 'line':
-        // 直線描画を完了
-        if (this.currentPath.length >= 2) {
-          this.allPaths.push({
-            tool: 'line',
-            color: this.strokeColor,
-            start: this.currentPath[0],
-            end: this.currentPath[this.currentPath.length - 1],
-            width: this.strokeWidth
-          });
-        }
-        break;
-        
-      default:
-        // その他のツールの場合、現在の描画を保存
-        if (this.currentPath.length > 0) {
-          this.allPaths.push({
-            tool: this.currentTool,
-            color: this.strokeColor,
-            points: [...this.currentPath],
-            width: this.strokeWidth
-          });
-        }
-        break;
-    }
-    
-    // 描画状態をリセット
-    this.isDrawing = false;
-    this.currentPath = [];
-    
-    // アンドゥ・リドゥのために操作タイプを設定
-    this.lastOperationType = 'path';
-    this.redoStack = []; // Redo履歴をクリア
-    
-    console.log('描画完了。allPaths数:', this.allPaths.length);
   }
 
   setSnapToGrid(enabled) {
@@ -3061,9 +3031,6 @@ export class DrawingCanvas {
         if (index > -1) {
           this.allPaths.splice(index, 1);
           console.log('空のテキストボックスを削除');
-          
-          // アンドゥ/リドゥボタンの状態を更新
-          this.updateUndoRedoButtons();
         }
         this.selectedTextBox = null;
       } else {
@@ -3100,16 +3067,29 @@ export class DrawingCanvas {
       // 横書きの場合 - 改行を正しく処理
       const inputLines = textBoxData.text.split('\n');
       let maxWidth = 0;
-      let totalLines = inputLines.length || 1; // 最低1行
+      let totalLines = 0;
       
       for (let inputLine of inputLines) {
-        // 各行の幅を測定
+        if (inputLine === '') {
+          totalLines++; // 空行もカウント
+          continue;
+        }
+        
+        // 各行の幅を測定し、自動折り返しを考慮
         const lineWidth = this.ctx.measureText(inputLine).width;
         maxWidth = Math.max(maxWidth, lineWidth);
+        
+        // 自動折り返しによる行数を計算
+        const availableWidth = textBoxData.width - 20; // パディング考慮
+        if (lineWidth > availableWidth && availableWidth > 0) {
+          totalLines += Math.ceil(lineWidth / availableWidth);
+        } else {
+          totalLines++;
+        }
       }
       
-      textBoxData.width = Math.max(maxWidth + 20, 100);
-      textBoxData.height = Math.max(totalLines * textBoxData.fontSize * 1.4, textBoxData.fontSize * 1.5);
+      textBoxData.width = Math.max(maxWidth + 20, 50);
+      textBoxData.height = Math.max(totalLines * textBoxData.fontSize * 1.4, 30);
     }
   }
 
@@ -3150,9 +3130,6 @@ export class DrawingCanvas {
       const removedPath = this.allPaths.splice(editingIndex, 1)[0];
       console.log('削除された空のテキストボックス:', removedPath);
       console.log('空のテキストボックスを削除しました');
-      
-      // アンドゥ/リドゥボタンの状態を更新
-      this.updateUndoRedoButtons();
     } else {
       console.log('削除対象の空テキストボックスが見つかりませんでした');
       
@@ -3182,7 +3159,7 @@ export class DrawingCanvas {
 
   updateCursor() {
     // 以前のツールクラスを削除
-    this.canvas.classList.remove('tool-pen', 'tool-line', 'tool-rectangle', 'tool-circle', 'tool-text-horizontal', 'tool-text-vertical', 'tool-select', 'tool-door', 'tool-stairs', 'tool-polyline-grid');
+    this.canvas.classList.remove('tool-pen', 'tool-line', 'tool-rectangle', 'tool-circle', 'tool-text-horizontal', 'tool-text-vertical', 'tool-select', 'tool-door', 'tool-stairs');
     
     // 現在のツールクラスを追加
     this.canvas.classList.add(`tool-${this.currentTool.replace('-', '-')}`);
@@ -3215,123 +3192,59 @@ export class DrawingCanvas {
     this.allPaths = [];
     this.redoStack = [];
     
-    // すべての履歴をクリア
-    if (this.history) {
-      this.history = [];
-    }
-    if (this.segmentHistory) {
-      this.segmentHistory = [];
-    }
-    if (this.segmentRedoStack) {
-      this.segmentRedoStack = [];
-    }
+    // 開口部と開口部履歴をクリア
+    this.openings = [];
+    this.selectedOpening = null;
+    this.isDraggingOpening = false;
+    this.openingsHistory = [];
+    this.openingsRedoStack = [];
     
-    // 消しゴム履歴もクリア
-    if (this.eraserHistory) {
-      this.eraserHistory = [];
-    }
-    if (this.eraserRedoStack) {
-      this.eraserRedoStack = [];
-    }
-    
-    // 最後の操作タイプもリセット
-    this.lastOperationType = null;
-    
-    // 初期状態として空の開口部履歴を保存しない（完全にクリア）
+    // 初期状態として空の開口部履歴を保存
+    this.saveOpeningsState();
     
     this.redrawCanvas(); // グリッドを含めて再描画
   }
 
-  // 消しゴム操作開始（押し続け対応）
-  startEraserOperation(event) {
-    if (this.isMultiTouch || this.multiTouchCooldown) {
-      return; // マルチタッチ中は処理しない
-    }
-    
-    console.log('消しゴム操作開始:', { 
-      eventType: event.type,
-      hasTouches: !!event.touches,
-      touchCount: event.touches?.length,
-      deviceType: /iPad|iPhone|iPod/.test(navigator.userAgent) ? 'iOS' : 'PC'
-    });
-    
-    this.isEraserPressed = true;
-    this.eraserOperationActive = true;
-    this.eraserOperationChanges = [];
-    
-    // 消しゴム操作開始時の状態をスナップショットとして保存
-    this.eraserOperationStartSnapshot = this.allPaths.map(path => ({...path}));
-    console.log('消しゴム操作開始スナップショット保存:', { pathCount: this.eraserOperationStartSnapshot.length });
-    
-    const coords = this.getCoordinates(event);
-    console.log('消しゴム操作座標:', coords);
-    this.eraseAtPoint(coords);
-  }
-  
-  // 消しゴム操作終了
-  stopEraserOperation() {
-    console.log('stopEraserOperation呼び出し:', {
-      isEraserPressed: this.isEraserPressed,
-      eraserOperationActive: this.eraserOperationActive,
-      eraserOperationChangesLength: this.eraserOperationChanges.length
-    });
-    
-    if (!this.isEraserPressed) return;
-    
-    this.isEraserPressed = false;
-    
-    // 消しゴム操作完了処理（蓄積された変更をまとめて一つの履歴として保存）
-    if (this.eraserOperationActive && this.eraserOperationChanges.length > 0) {
-      console.log('消しゴム操作完了 - 蓄積された変更をまとめて一つの履歴として保存');
-      
-      // 完全削除と部分削除を分離
-      const fullDeletes = this.eraserOperationChanges.filter(change => change.operationType === 'fullDelete');
-      const partialDeletes = this.eraserOperationChanges.filter(change => change.operationType !== 'fullDelete');
-      
-      // 一つの消しゴム操作として統合してeraserHistoryに保存
-      this.eraserHistory.push({
-        type: 'eraserOperation',
-        operationType: 'mixed', // 完全削除と部分削除の混合
-        fullDeletes: fullDeletes.map(fd => ({
-          deletedPath: fd.deletedPath,
-          pathIndex: fd.pathIndex
-        })),
-        partialDeletes: partialDeletes.length > 0 ? {
-          originalPath: partialDeletes[0].originalPath,
-          pathIndex: partialDeletes[0].pathIndex
-        } : null,
-        allPathsSnapshot: this.eraserOperationStartSnapshot, // 操作開始時のスナップショット
-        changeCount: this.eraserOperationChanges.length, // 変更回数
-        timestamp: this.eraserOperationChanges[0].timestamp
-      });
-      console.log('統合された消しゴム履歴記録:', { 
-        fullDeleteCount: fullDeletes.length,
-        partialDeleteCount: partialDeletes.length,
-        totalChangeCount: this.eraserOperationChanges.length 
-      });
-      
-      this.eraserOperationActive = false;
-      this.eraserOperationChanges = [];
-      this.eraserOperationStartSnapshot = null; // スナップショットをリセット
-      
-      // 統合履歴保存後にundoボタン状態を更新
-      this.updateUndoRedoButtons();
-    } else {
-      console.log('finishEraserOperation をスキップ:', {
-        eraserOperationActive: this.eraserOperationActive,
-        eraserOperationChangesLength: this.eraserOperationChanges.length
-      });
-      this.eraserOperationActive = false;
-      this.eraserOperationChanges = [];
-      this.eraserOperationStartSnapshot = null;
-    }
-  }
-
-  
   eraseAtPoint(coords) {
     const eraserSize = this.eraserSize; // 独立した消しゴムサイズを使用
     const pathsToRemove = [];
     const pathsToModify = [];
+    
+    // 削除操作前に状態を保存
+    let stateNeedsSave = false;
+    
+    // 開口部の削除をチェック
+    const openingsToRemove = [];
+    for (let i = 0; i < this.openings.length; i++) {
+      const opening = this.openings[i];
+      if (coords.x >= opening.x && coords.x <= opening.x + opening.width &&
+          coords.y >= opening.y && coords.y <= opening.y + opening.height) {
+        openingsToRemove.push(i);
+        stateNeedsSave = true;
+      }
+    }
+    
+    // 開口部削除前に状態保存
+    if (stateNeedsSave) {
+      this.saveOpeningsState();
+    }
+    
+    // 開口部を削除（逆順で削除してインデックスずれを防ぐ）
+    for (let i = openingsToRemove.length - 1; i >= 0; i--) {
+      this.openings.splice(openingsToRemove[i], 1);
+    }
+    
+    // 開口部が削除された場合は操作履歴に記録
+    if (openingsToRemove.length > 0) {
+      this.operationHistory.push('opening');
+      this.eraserDeletedPaths.push(true); // 消しゴムで削除されたことをマーク
+      console.log('消しゴムで開口部削除 - 操作履歴に記録:', this.operationHistory);
+    }
+    
+    // 選択中の開口部が削除された場合は選択解除
+    if (this.selectedOpening && openingsToRemove.length > 0) {
+      this.selectedOpening = null;
+    }
     
     // 描画されたパスの中から消しゴムと接触するものを見つける
     for (let i = 0; i < this.allPaths.length; i++) {
@@ -3350,136 +3263,10 @@ export class DrawingCanvas {
             break;
           }
         }
-      } else if (pathData.tool === 'polyline-grid') {
-        // グリッド連続直線の場合 - 部分削除
-        const points = pathData.points || pathData.path;
-        if (!points || points.length < 2) continue;
-        
-        // ポリラインを線分に分割
-        const segments = [];
-        for (let j = 0; j < points.length - 1; j++) {
-          segments.push({
-            start: points[j],
-            end: points[j + 1],
-            index: j
-          });
-        }
-        
-        // 消しゴムと接触する線分を見つける
-        const segmentsToRemove = [];
-        for (let j = 0; j < segments.length; j++) {
-          const segment = segments[j];
-          if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
-            segmentsToRemove.push(j);
-          }
-        }
-        
-        // 端点近くで削除された場合、隣接する非常に短い線分も削除対象にする
-        const expandedSegmentsToRemove = new Set(segmentsToRemove);
-        const minSegmentLength = 10; // 10px未満の線分は端点削除時に一緒に削除
-        
-        for (const removeIndex of segmentsToRemove) {
-          // 前の線分をチェック
-          if (removeIndex > 0) {
-            const prevSegment = segments[removeIndex - 1];
-            const prevLength = Math.sqrt(
-              Math.pow(prevSegment.end.x - prevSegment.start.x, 2) + 
-              Math.pow(prevSegment.end.y - prevSegment.start.y, 2)
-            );
-            if (prevLength < minSegmentLength) {
-              expandedSegmentsToRemove.add(removeIndex - 1);
-              console.log('短い前隣接線分も削除:', prevLength + 'px');
-            }
-          }
-          
-          // 次の線分をチェック
-          if (removeIndex < segments.length - 1) {
-            const nextSegment = segments[removeIndex + 1];
-            const nextLength = Math.sqrt(
-              Math.pow(nextSegment.end.x - nextSegment.start.x, 2) + 
-              Math.pow(nextSegment.end.y - nextSegment.start.y, 2)
-            );
-            if (nextLength < minSegmentLength) {
-              expandedSegmentsToRemove.add(removeIndex + 1);
-              console.log('短い後隣接線分も削除:', nextLength + 'px');
-            }
-          }
-        }
-        
-        const finalSegmentsToRemove = Array.from(expandedSegmentsToRemove);
-        
-        if (finalSegmentsToRemove.length > 0) {
-          // 残す線分から新しいポリラインを作成
-          const newPolylines = [];
-          let currentPolyline = [];
-          const minLineLength = 5; // 最小線分長（5px未満は点として扱う）
-          
-          for (let j = 0; j < segments.length; j++) {
-            if (!finalSegmentsToRemove.includes(j)) {
-              // この線分は残す
-              if (currentPolyline.length === 0) {
-                currentPolyline.push(segments[j].start);
-              }
-              currentPolyline.push(segments[j].end);
-            } else {
-              // この線分は削除 - 現在のポリラインを完了
-              if (currentPolyline.length >= 2) {
-                // 線分の長さをチェックして短すぎる場合は削除
-                const polylineLength = this.calculatePolylineLength(currentPolyline);
-                if (polylineLength >= minLineLength) {
-                  newPolylines.push({
-                    tool: 'polyline-grid',
-                    color: pathData.color || pathData.strokeColor,
-                    points: [...currentPolyline],
-                    width: pathData.width || pathData.strokeWidth
-                  });
-                } else {
-                  console.log('短すぎるポリライン（点状）を削除:', polylineLength + 'px');
-                }
-              }
-              currentPolyline = [];
-            }
-          }
-          
-          // 最後のポリラインを追加（長さチェック付き）
-          if (currentPolyline.length >= 2) {
-            const polylineLength = this.calculatePolylineLength(currentPolyline);
-            if (polylineLength >= minLineLength) {
-              newPolylines.push({
-                tool: 'polyline-grid',
-                color: pathData.color || pathData.strokeColor,
-                points: [...currentPolyline],
-                width: pathData.width || pathData.strokeWidth
-              });
-            } else {
-              console.log('短すぎる最終ポリライン（点状）を削除:', polylineLength + 'px');
-            }
-          }
-          
-          // ポリライングリッドの部分削除を統合履歴で記録
-          this.saveLineSegmentState(i, null, null, pathData, newPolylines.length);
-          console.log('ポリライングリッド部分削除履歴記録:', { index: i, newPathsCount: newPolylines.length });
-          
-          pathsToModify.push({ index: i, newPaths: newPolylines });
-        }
       } else if (pathData.tool === 'textbox') {
         // テキストボックスの場合 - 全体を削除
-        console.log('テキストボックス削除チェック:', {
-          eraserCoords: coords,
-          textBoxX: pathData.x,
-          textBoxY: pathData.y,
-          textBoxWidth: pathData.width,
-          textBoxHeight: pathData.height,
-          text: pathData.text
-        });
         if (this.isPointInTextBox(coords, pathData)) {
           pathsToRemove.push(i);
-          console.log('テキストボックス削除対象に追加:', { index: i, text: pathData.text });
-        } else {
-          console.log('テキストボックス範囲外:', { 
-            insideX: coords.x >= pathData.x && coords.x <= pathData.x + pathData.width,
-            insideY: coords.y >= pathData.y && coords.y <= pathData.y + pathData.height
-          });
         }
       } else if (pathData.tool === 'line') {
         // 矢印の場合は特別な処理を行う
@@ -3637,10 +3424,13 @@ export class DrawingCanvas {
           console.log('階段判定: ヒットせず', { coords, distance: this.distanceToLine(coords, pathData.startPoint, pathData.endPoint), eraserSize });
         }
       } else if (pathData.tool === 'door') {
-        // 扉の場合 - 扉全体を削除
-        if (this.isPointNearShape(coords, pathData, eraserSize)) {
-          console.log('扉を削除します');
+        // 扉の場合 - 扉全体を削除（当たり判定を拡大）
+        const expandedEraserSize = eraserSize * 1.5; // 扉用に当たり判定を1.5倍に拡大
+        if (this.isPointNearShape(coords, pathData, expandedEraserSize)) {
+          console.log('扉を削除します:', { coords, startPoint: pathData.startPoint, endPoint: pathData.endPoint, doorType: pathData.doorType });
           pathsToRemove.push(i);
+        } else {
+          console.log('扉判定: ヒットせず', { coords, distance: this.distanceToLine(coords, pathData.startPoint, pathData.endPoint), expandedEraserSize });
         }
       } else if (pathData.startPoint && pathData.endPoint) {
         // その他の図形の場合 - 全体を削除
@@ -3653,55 +3443,25 @@ export class DrawingCanvas {
     // 重複を除去して逆順でソート（インデックスが変わらないように）
     const uniqueIndices = [...new Set(pathsToRemove)].sort((a, b) => b - a);
     
-    // パスが削除される場合は履歴を保存
-    if (uniqueIndices.length > 0 || pathsToModify.length > 0) {
-      console.error('消しゴム操作: パス削除前に履歴を保存', { uniqueIndices, pathsToModifyLength: pathsToModify.length, allPathsLength: this.allPaths.length });
-      
-      // 完全削除された要素を記録（統合処理のため）
-      if (uniqueIndices.length > 0) {
-        const indicesToDelete = [...uniqueIndices].sort((a, b) => a - b); // 昇順でソート
-        for (const index of indicesToDelete) {
-          const pathToDelete = this.allPaths[index];
-          if (pathToDelete) {
-            // 完全削除情報をeraserOperationChangesに蓄積
-            this.eraserOperationChanges.push({
-              operationType: 'fullDelete',
-              pathIndex: index,
-              deletedPath: {...pathToDelete},
-              timestamp: Date.now()
-            });
-            console.log('完全削除を蓄積:', { index, pathTool: pathToDelete.tool, pathText: pathToDelete.text || 'N/A' });
-          }
-        }
+    // パス削除前に履歴保存
+    if (uniqueIndices.length > 0) {
+      // 削除されるパスをredoStackに保存（逆順で）
+      for (let i = uniqueIndices.length - 1; i >= 0; i--) {
+        const index = uniqueIndices[i];
+        const deletedPath = JSON.parse(JSON.stringify(this.allPaths[index]));
+        this.redoStack.push(deletedPath);
       }
       
-      // 部分削除は saveLineSegmentState で eraserOperationChanges に蓄積され、stopEraserOperationで保存
-      console.log('部分削除対象:', pathsToModify.length, '個');
-      
-      // 消しゴム操作として lastOperationType を設定
-      this.lastOperationType = 'eraser';
-      
-      console.log('消しゴム操作完了 - lastOperationType設定:', {
-        lastOperationType: this.lastOperationType,
-        pathsDeleted: uniqueIndices.length,
-        pathsModified: pathsToModify.length
-      });
-      
-      // 他のredoスタックをクリア（操作の整合性のため）
-      this.redoStack = [];
-      this.segmentRedoStack = [];
-      this.eraserRedoStack = [];
+      console.log('消しゴムでパス削除 - redoStackに保存:', uniqueIndices.length, '個のパス');
     }
     
     // パスを削除
     for (const index of uniqueIndices) {
-      console.error('パスを削除:', { index, pathTool: this.allPaths[index]?.tool });
       this.allPaths.splice(index, 1);
     }
     
     // 線分の部分削除を処理（削除後のインデックス調整が必要）
     pathsToModify.sort((a, b) => b.index - a.index); // 逆順でソート
-    
     for (const modification of pathsToModify) {
       let adjustedIndex = modification.index;
       // 削除されたパスの数だけインデックスを調整
@@ -3718,27 +3478,26 @@ export class DrawingCanvas {
     }
     
     if (uniqueIndices.length > 0 || pathsToModify.length > 0) {
-      // 消しゴム操作として履歴管理
-      this.lastOperationType = 'eraser';
-      
+      // 何が削除/変更されたかに応じて操作履歴に記録
+      if (uniqueIndices.length > 0) {
+        // パス全体が削除された場合（階段、扉など）
+        for (let i = 0; i < uniqueIndices.length; i++) {
+          this.operationHistory.push('path');
+          this.eraserDeletedPaths.push(true); // 消しゴムで削除されたことをマーク
+        }
+        console.log('消しゴムでパス削除完了 - 操作履歴に記録:', uniqueIndices.length, '個');
+      }
+      if (pathsToModify.length > 0) {
+        // パスの一部が変更された場合（線分削除など）
+        this.operationHistory.push('segment');
+        this.eraserDeletedPaths.push(false); // セグメント操作なのでfalse
+        console.log('消しゴムでセグメント変更 - 操作履歴に記録');
+      }
       this.redrawCanvas();
-      
-      console.log('消しゴム操作完了:', {
-        deletedPaths: uniqueIndices.length,
-        modifiedPaths: pathsToModify.length,
-        lastOperationType: this.lastOperationType
-      });
     }
   }
 
   updateEraserPreview(event) {
-    // マウス移動の間引き処理
-    const now = performance.now();
-    if (this.lastMouseMoveTime && (now - this.lastMouseMoveTime) < this.mouseMoveThrottleMs) {
-      return;
-    }
-    this.lastMouseMoveTime = now;
-    
     // デバウンシング処理で不要な再描画を防止
     if (this.eraserPreviewTimeout) {
       clearTimeout(this.eraserPreviewTimeout);
@@ -3750,7 +3509,7 @@ export class DrawingCanvas {
     
     this.eraserPreviewTimeout = setTimeout(() => {
       this.redrawCanvas();
-    }, this.redrawThrottleMs); // 統一された間引き間隔を使用
+    }, 16); // 約60FPSに制限
   }
 
   // タッチデバイス用の消しゴムプレビュー開始
@@ -4001,8 +3760,12 @@ export class DrawingCanvas {
         // 階段は中心線（矢印線）と段鼻線（横線）の両方で判定
         return this.isPointNearStairs(coords, startPoint, endPoint, pathData.stairWidth || this.gridSize, tolerance);
       case 'door':
-        // 扉は専用の判定メソッドで、扉の幅を考慮した判定
-        return this.isPointNearDoor(coords, startPoint, endPoint, pathData.doorType, tolerance);
+        // 扉は開口部の線分のみで判定（シンプルに）
+        const doorThickness = 6; // 扉の描画時の太さ（drawSingleDoorで使用される値）
+        
+        // 開口部の線分との距離のみで判定（適度な範囲に調整）
+        const adjustedTolerance = tolerance * 1.2; // 少しだけ当たり判定を拡大
+        return this.distanceToLine(coords, startPoint, endPoint) <= (adjustedTolerance + doorThickness / 2);
       default:
         return false;
     }
@@ -4053,77 +3816,6 @@ export class DrawingCanvas {
       if (this.distanceToLine(coords, stepStart, stepEnd) <= tolerance) {
         return true;
       }
-    }
-    
-    return false;
-  }
-
-  // 扉との距離判定（扉の幅を考慮した拡張判定）
-  isPointNearDoor(coords, startPoint, endPoint, doorType, tolerance) {
-    // 開口部の場合は矩形範囲での判定
-    if (doorType === 'smallbox') {
-      const boxSize = this.gridSize / 4; // 0.25マス
-      
-      // 矩形範囲内かチェック
-      const left = Math.min(startPoint.x, endPoint.x);
-      const right = Math.max(startPoint.x, endPoint.x) || (startPoint.x + boxSize);
-      const top = Math.min(startPoint.y, endPoint.y);
-      const bottom = Math.max(startPoint.y, endPoint.y) || (startPoint.y + boxSize);
-      
-      // 許容範囲を加えた矩形判定
-      return coords.x >= (left - tolerance) && 
-             coords.x <= (right + tolerance) &&
-             coords.y >= (top - tolerance) && 
-             coords.y <= (bottom + tolerance);
-    }
-    
-    // 通常の扉の当たり判定
-    const baseDistance = this.distanceToLine(coords, startPoint, endPoint);
-    
-    // 扉の種類によって当たり判定の範囲を調整
-    let expandedTolerance = tolerance;
-    
-    // 扉は視覚的に幅があるため、基本判定範囲を拡大
-    expandedTolerance *= 2.0; // 基本の2倍に拡大
-    
-    // 両開き扉の場合はさらに範囲を拡大
-    if (doorType === 'double') {
-      expandedTolerance *= 1.5; // 両開きの場合はさらに1.5倍
-    }
-    
-    // 基本の中心線判定
-    if (baseDistance <= expandedTolerance) {
-      return true;
-    }
-    
-    // 扉の端部分（ヒンジ部分）の当たり判定も追加
-    const doorWidth = 40; // 扉の標準幅
-    const dx = endPoint.x - startPoint.x;
-    const dy = endPoint.y - startPoint.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    
-    if (length === 0) return false;
-    
-    // 扉に垂直な方向のベクトル
-    const perpDx = -dy / length;
-    const perpDy = dx / length;
-    
-    // 扉の両端での当たり判定（ヒンジ付近）
-    const doorEnd1 = {
-      x: startPoint.x + perpDx * doorWidth / 2,
-      y: startPoint.y + perpDy * doorWidth / 2
-    };
-    const doorEnd2 = {
-      x: startPoint.x - perpDx * doorWidth / 2,
-      y: startPoint.y - perpDy * doorWidth / 2
-    };
-    
-    // 扉の端部分への当たり判定
-    const distToEnd1 = Math.sqrt((coords.x - doorEnd1.x) ** 2 + (coords.y - doorEnd1.y) ** 2);
-    const distToEnd2 = Math.sqrt((coords.x - doorEnd2.x) ** 2 + (coords.y - doorEnd2.y) ** 2);
-    
-    if (distToEnd1 <= tolerance || distToEnd2 <= tolerance) {
-      return true;
     }
     
     return false;
@@ -4514,7 +4206,7 @@ export class DrawingCanvas {
     this.segmentHistory.push(segmentChange);
     
     // セグメント操作として記録
-    this.lastOperationType = 'segment';
+    this.operationHistory.push('segment');
     
     // セグメント変更時はredoスタックをクリア
     this.segmentRedoStack = [];
@@ -4536,7 +4228,7 @@ export class DrawingCanvas {
     
     // 1つの統合されたセグメント変更として保存
     const combinedChange = {
-      pathIndex: -1, // 消しゴム操作の識別子
+      pathIndex: null, // 複数パスの変更
       originalSegments: null,
       newSegments: null,
       originalPath: null,
@@ -4546,20 +4238,14 @@ export class DrawingCanvas {
     };
     
     this.segmentHistory.push(combinedChange);
-    this.lastOperationType = 'eraser';
+    this.operationHistory.push('segment');
     this.segmentRedoStack = [];
     
-    console.log('消しゴム操作の統合履歴保存完了:', {
-      segmentHistoryLength: this.segmentHistory.length,
-      lastOperationType: this.lastOperationType,
-      eraserChangesCount: this.eraserOperationChanges.length
-    });
+    console.log('消しゴム操作の統合履歴保存完了 - 操作履歴:', this.operationHistory);
     
     // クリア
     this.eraserOperationActive = false;
     this.eraserOperationChanges = [];
-    
-    console.log('消しゴム操作の統合履歴保存完了');
   }
 
   // セグメント変更の状態を復元
@@ -4582,13 +4268,7 @@ export class DrawingCanvas {
       console.log('統合された消しゴム操作の復元完了');
       return true;
     }
-
-    // 消しゴム操作の識別子チェック
-    if (segmentChange.pathIndex === -1) {
-      console.log('消しゴム操作データ（無効な操作）をスキップ');
-      return false;
-    }
-
+    
     if (!segmentChange || typeof segmentChange.pathIndex !== 'number') {
       console.warn('無効なセグメント変更データ:', segmentChange);
       return false;
@@ -4747,414 +4427,191 @@ export class DrawingCanvas {
   }
 
   undo() {
-    console.log('Undo実行前の状態:', {
+    console.log('=== UNDO実行開始 ===');
+    console.log('実行前状態:', {
       allPathsLength: this.allPaths.length,
       redoStackLength: this.redoStack.length,
       segmentHistoryLength: this.segmentHistory.length,
-      segmentRedoStackLength: this.segmentRedoStack.length,
-      eraserHistoryLength: this.eraserHistory.length,
-      lastOperationType: this.lastOperationType
+      openingsHistoryLength: this.openingsHistory.length,
+      lastOperationType: this.operationHistory.length > 0 ? this.operationHistory[this.operationHistory.length - 1] : null,
+      operationHistory: this.operationHistory,
+      eraserDeletedPaths: this.eraserDeletedPaths
     });
     
-    // 最後の操作タイプに基づいて正しい順序でundoを実行
-    let undone = false;
+    // 操作履歴から最後の操作タイプを取得
+    if (this.operationHistory.length === 0) {
+      console.log('=== UNDO可能な操作なし ===');
+      return;
+    }
     
-    // 0. 最後の操作タイプが消しゴム操作の場合
-    if (this.lastOperationType === 'eraser' && this.eraserHistory.length > 0) {
-      console.log('消しゴム操作をundo');
-      // 消しゴム操作のundo（最後に削除されたオブジェクトを一つ復元）
-      const eraserOp = this.eraserHistory.pop();
-      console.error('消しゴム操作をundo中:', eraserOp);
+    const lastOperation = this.operationHistory.pop();
+    const wasEraserDeleted = this.eraserDeletedPaths.pop(); // 消しゴムで削除されたかどうか
+    console.log('最後の操作タイプ:', lastOperation, '消しゴム削除:', wasEraserDeleted);
+    console.log('配列状態確認:', {
+      operationHistoryLength: this.operationHistory.length,
+      eraserDeletedPathsLength: this.eraserDeletedPaths.length,
+      redoStackLength: this.redoStack.length,
+      allPathsLength: this.allPaths.length
+    });
+    
+    if (lastOperation === 'opening' && this.openingsHistory.length > 0) {
+      console.log('開口部操作をundo（操作履歴から: opening）');
+      const currentOpenings = [...this.openings];
+      this.openingsRedoStack.push(currentOpenings);
       
-      if (eraserOp.operationType === 'mixed') {
-        // 混合操作（完全削除と部分削除の組み合わせ）の復元
-        console.error('混合消しゴム操作をundo:', { 
-          fullDeleteCount: eraserOp.fullDeletes?.length || 0,
-          hasPartialDelete: !!eraserOp.partialDeletes 
-        });
-        
-        // redoスタックに情報を保存
-        this.eraserRedoStack.push({
-          operationType: 'mixed',
-          fullDeletes: eraserOp.fullDeletes ? [...eraserOp.fullDeletes] : [],
-          partialDeletes: eraserOp.partialDeletes ? {...eraserOp.partialDeletes} : null,
-          allPathsSnapshot: eraserOp.allPathsSnapshot ? eraserOp.allPathsSnapshot.map(path => ({...path})) : null,
-          timestamp: Date.now()
-        });
-        
-        // 操作開始時のスナップショットに復元
-        if (eraserOp.allPathsSnapshot) {
-          console.error('混合操作: 全体スナップショットを使用した復元');
-          this.allPaths = eraserOp.allPathsSnapshot.map(path => ({...path}));
-          console.error('混合操作復元完了:', { 
-            restoredPathsCount: this.allPaths.length,
-            fullDeleteCount: eraserOp.fullDeletes?.length || 0,
-            hasPartialDelete: !!eraserOp.partialDeletes
-          });
-        }
-        
-      } else if (eraserOp.operationType === 'fullDelete') {
-        // 完全削除の復元
-        // redoスタックに削除情報を保存（redo用）
-        this.eraserRedoStack.push({
-          operationType: 'fullDelete',
-          deletedPath: {...eraserOp.deletedPath},
-          deleteIndex: eraserOp.deleteIndex,
-          allPathsSnapshot: eraserOp.allPathsSnapshot ? eraserOp.allPathsSnapshot.map(path => ({...path})) : null,
-          deletedIndices: eraserOp.deletedIndices ? [...eraserOp.deletedIndices] : null,
-          timestamp: Date.now()
-        });
-        
-        // 新方式: 全体スナップショットがある場合は正確な復元を実行
-        if (eraserOp.allPathsSnapshot && eraserOp.deletedIndices) {
-          console.error('全体スナップショットを使用した正確な復元を実行');
-          
-          // 削除前の状態に戻す
-          this.allPaths = eraserOp.allPathsSnapshot.map(path => ({...path}));
-          
-          console.error('正確な復元完了:', { 
-            restoredPathsCount: this.allPaths.length,
-            restoredPath: eraserOp.deletedPath.tool,
-            originalIndex: eraserOp.deleteIndex
-          });
-        } else {
-          // 旧方式: フォールバック（後方互換性）
-          console.error('フォールバック: 従来方式での復元');
-          
-          // 削除されたオブジェクトを適切な位置に復元
-          let adjustedIndex = eraserOp.deleteIndex;
-          
-          // より安全なインデックス調整: 削除されたオブジェクトの数を考慮
-          if (eraserOp.deletedIndices && eraserOp.deletedIndices.length > 1) {
-            // 複数削除の場合、自分より後ろのオブジェクトが削除された数だけ調整
-            const deletedAfterThisIndex = eraserOp.deletedIndices.filter(idx => idx > eraserOp.deleteIndex).length;
-            adjustedIndex = eraserOp.deleteIndex - (eraserOp.deletedIndices.length - deletedAfterThisIndex - 1);
-          }
-          
-          if (adjustedIndex < 0) adjustedIndex = 0;
-          if (adjustedIndex > this.allPaths.length) {
-            adjustedIndex = this.allPaths.length; // 配列の最後に追加
-          }
-          
-          this.allPaths.splice(adjustedIndex, 0, eraserOp.deletedPath);
-          console.error('フォールバック復元完了:', { originalIndex: eraserOp.deleteIndex, adjustedIndex, pathTool: eraserOp.deletedPath.tool });
-        }
-        
-      } else if (eraserOp.operationType === 'partialDelete') {
-        // 部分削除の復元
-        // redoスタックに部分削除情報を保存（redo用）
-        this.eraserRedoStack.push({
-          operationType: 'partialDelete',
-          originalPath: {...eraserOp.originalPath},
-          modifiedPaths: eraserOp.modifiedPaths.map(path => ({...path})),
-          pathIndex: eraserOp.pathIndex,
-          allPathsSnapshot: eraserOp.allPathsSnapshot ? eraserOp.allPathsSnapshot.map(path => ({...path})) : null,
-          timestamp: Date.now()
-        });
-        
-        // 新方式: 全体スナップショットがある場合は正確な復元を実行
-        if (eraserOp.allPathsSnapshot) {
-          console.error('全体スナップショットを使用した部分削除の正確な復元');
-          
-          // 削除前の状態に戻す
-          this.allPaths = eraserOp.allPathsSnapshot.map(path => ({...path}));
-          
-          console.error('部分削除の正確な復元完了:', { 
-            restoredPathsCount: this.allPaths.length,
-            restoredPath: eraserOp.originalPath.tool,
-            pathIndex: eraserOp.pathIndex
-          });
-        } else {
-          // 旧方式: フォールバック（後方互換性）
-          console.error('フォールバック: 従来方式での部分削除復元');
-          
-          // 元のパスに復元（分割されたパスを元の一つのパスに戻す）
-          if (eraserOp.pathIndex < this.allPaths.length) {
-            // 現在分割されているパス群を削除
-            const currentPath = this.allPaths[eraserOp.pathIndex];
-            this.allPaths.splice(eraserOp.pathIndex, 1);
-            
-            // 元のパスを挿入
-            this.allPaths.splice(eraserOp.pathIndex, 0, {...eraserOp.originalPath});
-            console.error('フォールバック部分削除復元:', { pathIndex: eraserOp.pathIndex, pathTool: eraserOp.originalPath.tool, pathLength: eraserOp.originalPath.path?.length });
-          } else {
-            console.error('部分削除パス復元エラー: インデックスが範囲外', { pathIndex: eraserOp.pathIndex, allPathsLength: this.allPaths.length });
-          }
-        }
-      }
+      const previousOpenings = this.openingsHistory.pop();
+      this.restoreOpeningsState(previousOpenings);
       
-      // 他のredoスタックをクリア（操作の整合性のため）
-      this.redoStack = [];
-      this.segmentRedoStack = [];
-      
-      // 次のundo操作のためにlastOperationTypeを更新
-      this.lastOperationType = this.eraserHistory.length > 0 ? 'eraser' :
-                              this.segmentHistory.length > 0 ? 'segment' :
-                              this.allPaths.length > 0 ? 'path' : null;
-      undone = true;
-      
-    // 1. 最後の操作タイプがセグメント変更の場合
-    } else if (this.lastOperationType === 'segment' && this.segmentHistory.length > 0) {
-      console.log('セグメント変更をundo（1つずつ復元）');
-      
-      const segmentChange = this.segmentHistory.pop();
-      
-      // 現在の状態をredoスタックに保存
-      const currentSegmentState = {
-        pathIndex: segmentChange.pathIndex,
-        originalSegments: segmentChange.newSegments ? [...segmentChange.newSegments] : null,
-        newSegments: segmentChange.originalSegments ? [...segmentChange.originalSegments] : null,
-        timestamp: Date.now()
-      };
-      this.segmentRedoStack.push(currentSegmentState);
+      this.redrawCanvas();
+      console.log('=== 開口部UNDO完了 ===');
+      return;
+    }
+    
+    if (lastOperation === 'segment' && this.segmentHistory.length > 0) {
+      console.log('セグメント操作をundo（操作履歴から: segment）');
+      const lastSegmentChange = this.segmentHistory.pop();
+      console.log('取得したセグメント変更:', lastSegmentChange);
+      this.segmentRedoStack.push(lastSegmentChange);
       
       // セグメント状態を復元
-      if (this.restoreLineSegmentState(segmentChange)) {
-        undone = true;
-        
-        // セグメント履歴が残っている場合は引き続きsegment操作として維持
-        // すべてのセグメント履歴が復元された場合のみパス削除順序に移行
-        if (this.segmentHistory.length > 0) {
-          this.lastOperationType = 'segment';
-          console.log('セグメント変更のundo完了 - 残りセグメント履歴:', this.segmentHistory.length);
+      try {
+        if (this.restoreLineSegmentState(lastSegmentChange)) {
+          this.redrawCanvas();
+          console.log('=== セグメントUNDO完了 ===');
+          return;
         } else {
-          this.lastOperationType = this.allPaths.length > 0 ? 'path' : null;
-          console.log('全セグメント履歴復元完了 - 次回は通常のパス削除順序');
+          console.warn('セグメント状態の復元に失敗');
         }
+      } catch (error) {
+        console.error('セグメント復元エラー:', error);
+        // 履歴を戻す
+        this.segmentHistory.push(this.segmentRedoStack.pop());
       }
-      
-    } else if (!undone && this.allPaths.length > 0) {
-      console.log('パスをundo（メイン処理またはフォールバック）');
-      // 通常のパスのundo
-      const lastPath = this.allPaths.pop();
-      this.redoStack.push(lastPath);
-      
-      // 次のundo操作のためにlastOperationTypeを更新
-      this.lastOperationType = this.allPaths.length > 0 ? 'path' : null;
-      undone = true;
-      
-    } else {
-      console.log('undo可能な操作がありません');
     }
     
-    if (undone) {
-      this.updateUndoRedoButtons();
-      this.redrawCanvas();
-    } else {
-      console.log('何もundoしませんでした');
+    if (lastOperation === 'path') {
+      if (wasEraserDeleted && this.redoStack.length > 0) {
+        // 消しゴムで削除されたパスの復元
+        console.log('消しゴムで削除されたパスを復元（操作履歴から: path）');
+        const restoredPath = this.redoStack.pop();
+        this.allPaths.push(restoredPath);
+        
+        console.log('パス復元完了:', {
+          restoredTool: restoredPath.tool,
+          totalPaths: this.allPaths.length
+        });
+        
+        this.redrawCanvas();
+        console.log('=== UNDO完了 ===');
+        return;
+      } else if (!wasEraserDeleted && this.allPaths.length > 0) {
+        // 通常のパス削除（ペンなどで描いたパスのundo）
+        console.log('通常パスをundo（操作履歴から: path）');
+        const removedPath = this.allPaths.pop();
+        this.redoStack.push(removedPath);
+        
+        console.log('パス削除完了:', {
+          removedTool: removedPath.tool,
+          remainingPaths: this.allPaths.length
+        });
+        
+        this.redrawCanvas();
+        console.log('=== UNDO完了 ===');
+        return;
+      }
     }
+    
+    // フォールバック：操作タイプが不明な場合の処理
+    // セグメント履歴のundo
+    if (this.segmentHistory.length > 0) {
+      console.log('セグメント履歴をundo（フォールバック）');
+      const segmentChange = this.segmentHistory.pop();
+      this.segmentRedoStack.push(segmentChange);
+      
+      if (this.restoreLineSegmentState(segmentChange)) {
+        this.operationHistory.push('segment');
+        this.redrawCanvas();
+        console.log('=== セグメントUNDO完了 ===');
+        return;
+      }
+    }
+    
+    // 開口部履歴のundo（最後の手段）
+    if (this.openingsHistory.length > 0 && this.openings.length > 0) {
+      console.log('開口部をundo（フォールバック）');
+      const currentOpenings = [...this.openings];
+      this.openingsRedoStack.push(currentOpenings);
+      
+      const previousOpenings = this.openingsHistory.pop();
+      this.restoreOpeningsState(previousOpenings);
+      
+      this.redrawCanvas();
+      console.log('=== 開口部UNDO完了 ===');
+      return;
+    }
+    
+    console.log('=== UNDO可能な操作なし ===');
   }
 
   redo() {
+    console.log('=== REDO実行開始 ===');
     console.log('Redo実行前の状態:', {
       redoStackLength: this.redoStack.length,
+      openingsRedoStackLength: this.openingsRedoStack.length,
       segmentRedoStackLength: this.segmentRedoStack.length,
-      eraserRedoStackLength: this.eraserRedoStack.length,
-      lastOperationType: this.lastOperationType
+      operationHistory: this.operationHistory
     });
     
-    // redo履歴に基づいて適切なredoを実行
-    // 重要: lastOperationTypeに基づいて優先順位を決める
-    let redone = false;
+    // 各スタックから復元すべき操作を判定
+    // 最後にundo された操作を redo する
     
-    // 1. 最後の操作タイプがeraserの場合のみ、消しゴム操作のredoを優先
-    if (this.lastOperationType === 'eraser' && this.eraserRedoStack.length > 0) {
-      console.log('消しゴム操作をredo（最後の操作が消しゴムの場合）');
-      const redoOperation = this.eraserRedoStack.pop();
+    if (this.redoStack.length > 0) {
+      console.log('通常パスをredo - 最後のパスを復元');
+      const restoredPath = this.redoStack.pop();
+      this.allPaths.push(restoredPath);
+      this.operationHistory.push('path'); // 操作履歴に記録
+      this.eraserDeletedPaths.push(false); // redoなので通常作成扱い
       
-      if (redoOperation.operationType === 'fullDelete') {
-        // 完全削除の再実行（一つずつ）
-        console.error('消しゴム操作: 一つのオブジェクトを再削除');
-        
-        // 削除操作を再実行する前に、履歴に保存
-        this.eraserHistory.push({
-          type: 'eraserOperation',
-          operationType: 'fullDelete',
-          deletedPath: {...redoOperation.deletedPath},
-          deleteIndex: redoOperation.deleteIndex,
-          allPathsSnapshot: redoOperation.allPathsSnapshot ? redoOperation.allPathsSnapshot.map(path => ({...path})) : null,
-          deletedIndices: redoOperation.deletedIndices ? [...redoOperation.deletedIndices] : null,
-          timestamp: Date.now()
-        });
-        
-        // 一つずつ削除：該当のオブジェクトを検索して削除
-        const pathToDelete = redoOperation.deletedPath;
-        let deletedCount = 0;
-        
-        for (let i = this.allPaths.length - 1; i >= 0; i--) {
-          const currentPath = this.allPaths[i];
-          // パスの内容を比較して同じオブジェクトを特定
-          if (this.pathsAreEqual(currentPath, pathToDelete)) {
-            this.allPaths.splice(i, 1);
-            deletedCount++;
-            console.error('一つずつ再削除完了:', { 
-              deletedIndex: i, 
-              originalIndex: redoOperation.deleteIndex, 
-              pathTool: pathToDelete.tool 
-            });
-            break; // 一つだけ削除
-          }
-        }
-        
-        if (deletedCount === 0) {
-          console.error('再削除対象が見つからないため、消しゴムredoをスキップ:', pathToDelete.tool);
-          // 次の利用可能なredo操作を試行
-          redone = this.tryNextRedo();
-        } else {
-          redone = true;
-        }
-        
-      } else if (redoOperation.operationType === 'partialDelete') {
-        // 部分削除の再実行（一つずつ）
-        console.error('消しゴム操作: 一つの部分削除を再適用');
-        
-        // 削除操作を再実行する前に、履歴に保存
-        this.eraserHistory.push({
-          type: 'eraserOperation',
-          operationType: 'partialDelete',
-          originalPath: {...redoOperation.originalPath},
-          modifiedPaths: redoOperation.modifiedPaths.map(path => ({...path})),
-          pathIndex: redoOperation.pathIndex,
-          allPathsSnapshot: redoOperation.allPathsSnapshot ? redoOperation.allPathsSnapshot.map(path => ({...path})) : null,
-          timestamp: Date.now()
-        });
-        
-        // 一つずつ部分削除：元のパスを見つけて分割されたパス群に置き換える
-        const originalPath = redoOperation.originalPath;
-        let modifiedCount = 0;
-        
-        for (let i = 0; i < this.allPaths.length; i++) {
-          const currentPath = this.allPaths[i];
-          if (this.pathsAreEqual(currentPath, originalPath)) {
-            // 元のパスを削除して分割されたパス群に置き換える
-            this.allPaths.splice(i, 1, ...redoOperation.modifiedPaths);
-            modifiedCount++;
-            console.error('一つずつ部分削除再適用完了:', { 
-              modifiedIndex: i, 
-              originalTool: originalPath.tool, 
-              newPathsCount: redoOperation.modifiedPaths.length 
-            });
-            break; // 一つだけ処理
-          }
-        }
-        
-        if (modifiedCount === 0) {
-          console.error('部分削除再適用対象が見つからないため、消しゴムredoをスキップ:', originalPath.tool);
-          // 次の利用可能なredo操作を試行
-          redone = this.tryNextRedo();
-        } else {
-          redone = true;
-        }
-      }
+      console.log('パス復元完了:', {
+        restoredTool: restoredPath.tool,
+        totalPaths: this.allPaths.length
+      });
       
-      if (redone) {
-        console.log('消しゴム操作のredo完了（一つずつ処理）');
-      }
-      
-    } else {
-      // 2. 通常の優先順位でredo実行
-      redone = this.tryNextRedo();
-    }
-    
-    if (redone) {
-      this.updateUndoRedoButtons();
       this.redrawCanvas();
-    } else {
-      console.log('redo可能な操作がありません');
+      console.log('=== REDO完了 ===');
+      return;
     }
-  }
-
-  // 次の利用可能なredo操作を試行するヘルパーメソッド
-  tryNextRedo() {
-    // セグメント変更のredo
+    
+    if (this.openingsRedoStack.length > 0) {
+      console.log('開口部をredo');
+      const currentOpenings = [...this.openings];
+      this.openingsHistory.push(currentOpenings);
+      
+      const redoOpenings = this.openingsRedoStack.pop();
+      this.restoreOpeningsState(redoOpenings);
+      this.operationHistory.push('opening'); // 操作履歴に記録
+      this.eraserDeletedPaths.push(false); // redoなので通常作成扱い
+      
+      this.redrawCanvas();
+      console.log('=== 開口部REDO完了 ===');
+      return;
+    }
+    
     if (this.segmentRedoStack.length > 0) {
-      console.log('セグメント変更をredo');
+      console.log('セグメント履歴をredo');
       const segmentChange = this.segmentRedoStack.pop();
+      this.segmentHistory.push(segmentChange);
       
-      // 消しゴム操作の識別子チェック - 次の操作を試行
-      if (segmentChange.pathIndex === -1) {
-        console.log('消しゴム操作データをスキップして次の操作を試行');
-        return this.tryNextRedo();
-      }
-      
-      // 現在の状態を履歴に戻す
-      const currentSegmentState = {
-        pathIndex: segmentChange.pathIndex,
-        originalSegments: segmentChange.newSegments ? [...segmentChange.newSegments] : null,
-        newSegments: segmentChange.originalSegments ? [...segmentChange.originalSegments] : null,
-        timestamp: Date.now()
-      };
-      this.segmentHistory.push(currentSegmentState);
-      
-      // セグメント状態を復元
       if (this.restoreLineSegmentState(segmentChange)) {
-        this.lastOperationType = 'segment';
-        console.log('セグメント変更のredo完了');
-        return true;
+        this.operationHistory.push('segment'); // 操作履歴に記録
+        this.eraserDeletedPaths.push(false); // redoなので通常操作扱い
+        this.redrawCanvas();
+        console.log('=== セグメントREDO完了 ===');
+        return;
       }
-      
-    } else if (this.redoStack.length > 0) {
-      // 通常パスのredo（一つずつ復元）
-      console.log('通常パスをredo（一つずつ復元）');
-      const pathToRestore = this.redoStack.pop();
-      this.allPaths.push(pathToRestore);
-      this.lastOperationType = 'path';
-      return true;
-      
-    } else if (this.eraserRedoStack.length > 0) {
-      // 最後に残った消しゴム操作のredo（fallback）
-      console.log('残存する消しゴム操作をredo（fallback）');
-      const redoOperation = this.eraserRedoStack.pop();
-      console.warn('消しゴムredo（fallback）をスキップ - 対象が存在しない可能性:', redoOperation.operationType);
-      // 再帰的に次のredo操作を試行
-      return this.tryNextRedo();
     }
     
-    return false;
-  }
-
-  // パスが等しいかどうかを判定するヘルパーメソッド
-  pathsAreEqual(path1, path2) {
-    if (!path1 || !path2) return false;
-    
-    // 基本プロパティの比較
-    if (path1.tool !== path2.tool || 
-        path1.strokeColor !== path2.strokeColor || 
-        path1.strokeWidth !== path2.strokeWidth) {
-      return false;
-    }
-    
-    // ツール固有の比較
-    switch (path1.tool) {
-      case 'pen':
-        // フリーハンドの場合はパス配列を比較
-        return JSON.stringify(path1.path) === JSON.stringify(path2.path);
-      
-      case 'line':
-      case 'rectangle':
-      case 'circle':
-      case 'door':
-      case 'stairs':
-        // 図形の場合は開始点と終了点を比較
-        return (path1.startPoint && path2.startPoint &&
-                path1.endPoint && path2.endPoint &&
-                path1.startPoint.x === path2.startPoint.x &&
-                path1.startPoint.y === path2.startPoint.y &&
-                path1.endPoint.x === path2.endPoint.x &&
-                path1.endPoint.y === path2.endPoint.y);
-      
-      case 'textbox':
-        // テキストボックスの場合は位置とテキスト内容を比較
-        return (path1.x === path2.x &&
-                path1.y === path2.y &&
-                path1.width === path2.width &&
-                path1.height === path2.height &&
-                path1.text === path2.text);
-      
-      default:
-        // その他の場合は全体を比較
-        return JSON.stringify(path1) === JSON.stringify(path2);
-    }
+    console.log('=== REDO可能な操作なし ===');
   }
 
   replaceLastStroke(shapeData) {
@@ -5474,9 +4931,9 @@ export class DrawingCanvas {
 
   getDoorTypes() {
     return [
-      { value: 'smallbox', label: '開口部' },
       { value: 'single', label: '片開き戸' },
-      { value: 'double', label: '両開き戸' }
+      { value: 'double', label: '両開き戸' },
+      { value: 'opening', label: '開口部' }
     ];
   }
 
@@ -5571,6 +5028,44 @@ export class DrawingCanvas {
     ctx.restore();
   }
 
+  // 開口部の状態を保存
+  saveOpeningsState() {
+    const fullStack = new Error().stack;
+    console.log('saveOpeningsState呼び出し:', {
+      currentOpeningsCount: this.openings.length,
+      historyLength: this.openingsHistory.length,
+      fullStackTrace: fullStack
+    });
+    
+    // 現在の開口部配列の深いコピーを作成
+    const openingsSnapshot = this.openings.map(opening => ({
+      x: opening.x,
+      y: opening.y,
+      width: opening.width,
+      height: opening.height,
+      isSelected: opening.isSelected
+    }));
+    
+    this.openingsHistory.push(openingsSnapshot);
+    this.openingsRedoStack = []; // 新しい操作でredo履歴をクリア
+    // path系のredo履歴もクリア（開口部操作は他の描画とは独立して管理）
+    this.redoStack = [];
+  }
+
+  // 開口部の状態を復元
+  restoreOpeningsState(openingsSnapshot) {
+    this.openings = openingsSnapshot.map(opening => ({
+      x: opening.x,
+      y: opening.y,
+      width: opening.width,
+      height: opening.height,
+      isSelected: opening.isSelected
+    }));
+    
+    // 選択状態も復元
+    this.selectedOpening = this.openings.find(opening => opening.isSelected) || null;
+  }
+
   // 矢印の先端部分の範囲を計算
   getArrowHeadRegion(startPoint, endPoint, arrowSize = 10) {
     const dx = endPoint.x - startPoint.x;
@@ -5647,7 +5142,7 @@ export class DrawingCanvas {
 
   // 描画範囲を取得する関数
   getDrawingBounds() {
-    if (this.allPaths.length === 0) {
+    if (this.allPaths.length === 0 && this.openings.length === 0) {
       return null;
     }
     
@@ -5674,6 +5169,14 @@ export class DrawingCanvas {
         maxX = Math.max(maxX, pathData.startPoint.x, pathData.endPoint.x);
         maxY = Math.max(maxY, pathData.startPoint.y, pathData.endPoint.y);
       }
+    });
+    
+    // 開口部の範囲も計算
+    this.openings.forEach(opening => {
+      minX = Math.min(minX, opening.x);
+      minY = Math.min(minY, opening.y);
+      maxX = Math.max(maxX, opening.x + opening.width);
+      maxY = Math.max(maxY, opening.y + opening.height);
     });
     
     return {
@@ -6873,27 +6376,28 @@ export class DrawingCanvas {
     ctx.rect(0, 0, width, height);
     ctx.clip();
     
-    console.log(`🎯 PDF描画開始: ${this.allPaths.length}個のパスを処理中`);
-    console.log(`📏 キャプチャ範囲: x=${offsetX}, y=${offsetY}, w=${width}, h=${height}`);
+    console.log(`PDF描画: ${this.allPaths.length}個のパスを処理中`);
+    console.log(`キャプチャ範囲: x=${offsetX}, y=${offsetY}, w=${width}, h=${height}`);
     
-    // 描画される線をカウント
-    let drawnCount = 0;
-    let skippedCount = 0;
-    
-    // すべてのパスを描画
+    // すべてのパスを描画（範囲チェックは簡略化、クリッピングで処理）
     for (let i = 0; i < this.allPaths.length; i++) {
       const pathData = this.allPaths[i];
+      console.log(`=== パス ${i} 詳細情報 ===`);
+      console.log('完全なpathData:', JSON.stringify(pathData, null, 2));
+      console.log('==================');
       
-      try {
-        this.drawPathOnContext(ctx, pathData, offsetX, offsetY);
-        drawnCount++;
-      } catch (error) {
-        console.error(`❌ パス${i}描画エラー:`, error);
-        skippedCount++;
-      }
+      this.drawPathOnContext(ctx, pathData, offsetX, offsetY);
     }
     
-    console.log(`🎨 描画完了: 成功${drawnCount}個, 失敗${skippedCount}個`);
+    // 開口部も描画
+    console.log('=== 開口部描画開始 ===');
+    console.log('開口部の数:', this.openings.length);
+    this.openings.forEach((opening, index) => {
+      console.log(`開口部 ${index}:`, opening);
+      this.drawOpeningOnPDF(ctx, opening, offsetX, offsetY);
+    });
+    console.log('=== 開口部描画完了 ===');
+    
     ctx.restore();
   }
 
@@ -7027,8 +6531,8 @@ export class DrawingCanvas {
       
       // doorTypeが未定義の場合はデフォルト値を設定
       if (!pathData.doorType) {
-        console.warn('⚠️ doorTypeが未定義です。デフォルト値"single"を使用します');
-        pathData.doorType = 'single';
+        console.warn('⚠️ doorTypeが未定義です。デフォルト値"opening"を使用します');
+        pathData.doorType = 'opening';
       }
       
       ctx.save();
@@ -7066,17 +6570,6 @@ export class DrawingCanvas {
       // PDF用階段描画
       this.drawStairsOnContext(ctx, adjustedStart, adjustedEnd, pathData);
       ctx.restore();
-    } else if (pathData.tool === 'polyline-grid' && pathData.path) {
-      // 一筆書きモード（グリッド連続直線）- ペンツールと同じ描画方式
-      console.log('✏️ 一筆書きモード描画:', pathData.path.length, '点');
-      ctx.beginPath();
-      if (pathData.path.length > 0) {
-        ctx.moveTo(pathData.path[0].x - offsetX, pathData.path[0].y - offsetY);
-        for (let i = 1; i < pathData.path.length; i++) {
-          ctx.lineTo(pathData.path[i].x - offsetX, pathData.path[i].y - offsetY);
-        }
-      }
-      ctx.stroke();
     } else if (pathData.tool === 'textbox' && pathData.x && pathData.y) {
       // テキストボックス描画
       console.log('テキストボックス描画:', pathData);
@@ -7140,7 +6633,7 @@ export class DrawingCanvas {
     ctx.lineWidth = pathData.strokeWidth || 2;
     ctx.strokeStyle = pathData.strokeColor || '#000000';
     
-    const doorType = pathData.doorType || 'single';
+    const doorType = pathData.doorType || 'opening';
     console.log('🚪 扉タイプ確定:', doorType);
     
     // 元の実装と同じ四方向固定の扉描画
@@ -7197,8 +6690,8 @@ export class DrawingCanvas {
       case 'double':
         this.drawDoubleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
         break;
-      case 'smallbox':
-        this.drawSmallBoxOnContext(ctx, doorStart, doorEnd);
+      case 'opening':
+        this.drawOpeningOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
         break;
       case 'single-left':
         this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth, 'left');
@@ -7208,11 +6701,44 @@ export class DrawingCanvas {
         break;
       default:
         console.log('未知の扉タイプ:', doorType);
-        // デフォルトで片開き戸を描画
-        this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
+        // デフォルトで開口部を描画
+        this.drawOpeningOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
         break;
     }
     console.log('扉描画メソッド完了');
+  }
+
+  // PDF用開口部描画
+  drawOpeningOnContext(ctx, start, end, perpDx, perpDy, width) {
+    console.log('🔓 開口部描画開始:', { start, end, perpDx, perpDy, width });
+    
+    // 座標を整数化
+    const intStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
+    const intEnd = { x: Math.floor(end.x), y: Math.floor(end.y) };
+    
+    // 扉開口部の枠線（背景白塗り + 細い破線）
+    ctx.save();
+    
+    // 1. まず太い白線で壁を上書き（背景）
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(intStart.x, intStart.y);
+    ctx.lineTo(intEnd.x, intEnd.y);
+    ctx.stroke();
+    
+    // 2. 細い破線の境界線
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#000000';
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(intStart.x, intStart.y);
+    ctx.lineTo(intEnd.x, intEnd.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    ctx.restore();
+    console.log('🔓 開口部描画完了');
   }
 
   // PDF用片開き扉描画
@@ -7226,9 +6752,9 @@ export class DrawingCanvas {
     // 扉開口部の枠線（背景白塗り）- キャンバス版と同じ
     ctx.save();
     
-    // まず太い背景色線で壁を上書き（背景）- キャンバス版と同じ
+    // まず太い白線で壁を上書き（背景）- キャンバス版と同じ
     ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    ctx.strokeStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(intStart.x, intStart.y);
     ctx.lineTo(intEnd.x, intEnd.y);
@@ -7236,7 +6762,7 @@ export class DrawingCanvas {
     
     // 2回描画（キャンバス版と同じ）
     ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    ctx.strokeStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(intStart.x, intStart.y);
     ctx.lineTo(intEnd.x, intEnd.y);
@@ -7295,12 +6821,12 @@ export class DrawingCanvas {
     const intStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
     const intEnd = { x: Math.floor(end.x), y: Math.floor(end.y) };
     
-    // 扉開口部の枠線（壁と同じ太さの6px、中を背景色で塗りつぶし）- キャンバス版と同じ
+    // 扉開口部の枠線（壁と同じ太さの6px、中を白で塗りつぶし）- キャンバス版と同じ
     ctx.save();
     
-    // まず太い背景色線で壁を上書き（背景）- キャンバス版と同じ
+    // まず太い白線で壁を上書き（背景）- キャンバス版と同じ
     ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
+    ctx.strokeStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(intStart.x, intStart.y);
     ctx.lineTo(intEnd.x, intEnd.y);
@@ -7378,33 +6904,6 @@ export class DrawingCanvas {
     ctx.restore();
     
     console.log('🚪↔️ 両開き扉描画完了');
-  }
-
-  // PDF用開口部描画メソッド
-  drawSmallBoxOnContext(ctx, start, end) {
-    console.log('📦 PDF用開口部描画開始:', { start, end });
-    
-    // 0.25マス = gridSize / 4
-    const boxSize = this.gridSize / 4;
-    
-    // startPointの座標をそのまま使用（左上角として保存済み）
-    const boxX = Math.floor(start.x);
-    const boxY = Math.floor(start.y);
-    
-    ctx.save();
-    
-    // 開口部の描画（薄いグレーの塗りつぶし）
-    ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
-    ctx.fillRect(boxX, boxY, boxSize, boxSize);
-    
-    // 境界線
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#666666';
-    ctx.strokeRect(boxX, boxY, boxSize, boxSize);
-    
-    ctx.restore();
-    
-    console.log('📦 PDF用小箱描画完了:', { boxX, boxY, boxSize });
   }
 
   // PDF用階段描画メソッド
@@ -7644,7 +7143,7 @@ export class DrawingCanvas {
     // 完全中央配置のための座標を計算
     const centerX = x + width / 2;
     const centerY = y + height / 2;
-    const startX = centerX + (totalTextWidth - columnSpacing) / 2; // 右端から開始
+    const startX = centerX - (totalTextWidth - columnSpacing) / 2;
     const startY = centerY - totalTextHeight / 2;
     
     console.log('PDF縦書き完全中央配置計算:', {
@@ -7660,7 +7159,7 @@ export class DrawingCanvas {
     
     inputLines.forEach((line, columnIndex) => {
       const chars = line.split('');
-      const columnX = startX - (columnIndex * columnSpacing); // 右から左に配置
+      const columnX = startX + (columnIndex * columnSpacing);
       
       console.log(`PDF縦書き列${columnIndex}: "${line}" at columnX=${columnX}`);
       
@@ -7682,6 +7181,29 @@ export class DrawingCanvas {
   }
 
   // PDF用開口部描画メソッド
+  drawOpeningOnPDF(ctx, opening, offsetX, offsetY) {
+    console.log('PDF用開口部描画:', { opening, offsetX, offsetY });
+    
+    // 座標をPDF用に調整
+    const adjustedX = opening.x - offsetX;
+    const adjustedY = opening.y - offsetY;
+    
+    ctx.save();
+    
+    // グレー塗りつぶし
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.9)';
+    ctx.fillRect(adjustedX, adjustedY, opening.width, opening.height);
+    
+    // 境界線
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#000000';
+    ctx.strokeRect(adjustedX, adjustedY, opening.width, opening.height);
+    
+    ctx.restore();
+    
+    console.log('PDF用開口部描画完了');
+  }
+
   // PDF用矢印頭部描画メソッド（キャンバス版と完全一致）
   drawArrowHeadOnContext(ctx, fromX, fromY, toX, toY, arrowSize = 10) {
     // 矢印の方向を計算
@@ -7820,151 +7342,5 @@ export class DrawingCanvas {
     } catch (error) {
       console.error('選択状態のクリア中にエラー:', error);
     }
-  }
-
-  // ダークモード対応のデフォルト色を取得
-  getDefaultStrokeColor() {
-    // ダークモードかどうかを判定
-    const isDarkMode = document.body.getAttribute('data-theme') === 'dark';
-    return isDarkMode ? '#ffffff' : '#000000';
-  }
-
-  // ダークモード対応の図形色を取得（扉、階段用）
-  getShapeColor() {
-    return this.getDefaultStrokeColor();
-  }
-
-  // ダークモード対応の背景色を取得（扉枠用）
-  getBackgroundColor() {
-    const isDarkMode = document.body.getAttribute('data-theme') === 'dark';
-    return isDarkMode ? '#000000' : '#ffffff';
-  }
-
-  // ダークモード切り替え時の色更新
-  updateStrokeColorForTheme() {
-    console.log('updateStrokeColorForTheme が呼び出されました');
-    console.log('現在のallPaths数:', this.allPaths.length);
-    
-    // 現在の色がデフォルト色（黒または白）の場合のみ更新
-    if (this.strokeColor === '#000000' || this.strokeColor === '#ffffff') {
-      this.strokeColor = this.getDefaultStrokeColor();
-      console.log('ダークモード切り替えに応じて線色を更新:', this.strokeColor);
-      
-      // カラーピッカーの値も更新
-      const colorPicker = document.getElementById('stroke-color');
-      if (colorPicker) {
-        colorPicker.value = this.strokeColor;
-      }
-    }
-
-    // 既存の図形の色を更新（黒→白、白→黒）
-    const isDarkMode = document.body.getAttribute('data-theme') === 'dark';
-    const oldColor = isDarkMode ? '#000000' : '#ffffff';
-    const newColor = isDarkMode ? '#ffffff' : '#000000';
-
-    console.log(`ダークモード: ${isDarkMode}, ${oldColor} → ${newColor} に変更予定`);
-
-    let hasUpdated = false;
-    this.allPaths.forEach((pathData, index) => {
-      console.log(`パス${index}: tool=${pathData.tool}, 現在色=${pathData.strokeColor}`);
-      if (pathData.strokeColor === oldColor) {
-        pathData.strokeColor = newColor;
-        hasUpdated = true;
-        console.log(`パス${index}の色を ${oldColor} → ${newColor} に更新しました`);
-      }
-    });
-
-    // 既存の図形の色が更新された場合、キャンバスを再描画
-    if (hasUpdated) {
-      console.log(`ダークモード切り替えで既存図形の色を ${oldColor} → ${newColor} に更新`);
-      this.redrawCanvas();
-    } else {
-      console.log('更新対象の図形がありませんでした');
-    }
-  }
-
-  // ポリラインの総長を計算するヘルパーメソッド
-  calculatePolylineLength(points) {
-    if (!points || points.length < 2) return 0;
-    
-    let totalLength = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      const dx = points[i + 1].x - points[i].x;
-      const dy = points[i + 1].y - points[i].y;
-      totalLength += Math.sqrt(dx * dx + dy * dy);
-    }
-    return totalLength;
-  }
-
-  // Undo/Redoボタンの状態を更新
-  updateUndoRedoButtons() {
-    const undoBtn = document.getElementById('undo-btn');
-    const redoBtn = document.getElementById('redo-btn');
-    
-    // Undo可能かチェック（いずれかの履歴が存在するか）
-    const canUndo = this.allPaths.length > 0 || 
-                   this.segmentHistory.length > 0 || 
-                   this.eraserHistory.length > 0;
-    
-    // Redo可能かチェック（いずれかのredoスタックが存在するか）
-    const canRedo = this.redoStack.length > 0 || 
-                   this.segmentRedoStack.length > 0 || 
-                   this.eraserRedoStack.length > 0;
-    
-    if (undoBtn) {
-      undoBtn.disabled = !canUndo;
-      undoBtn.style.opacity = canUndo ? '1' : '0.5';
-    }
-    
-    if (redoBtn) {
-      redoBtn.disabled = !canRedo;
-      redoBtn.style.opacity = canRedo ? '1' : '0.5';
-    }
-    
-    console.log('Undo/Redoボタン状態更新:', { canUndo, canRedo });
-  }
-
-  // 履歴を完全にクリアする（ホーム戻り時用）
-  clearAllHistory() {
-    this.allPaths = [];
-    this.redoStack = [];
-    this.segmentHistory = [];
-    this.segmentRedoStack = [];
-    this.eraserHistory = [];
-    this.eraserRedoStack = [];
-    this.lastOperationType = null;
-    if (this.operationHistory) {
-      this.operationHistory = [];
-    }
-    
-    // ビューポート・変換行列の初期化
-    this.scale = 1;
-    
-    // 初期位置を中心に設定（setupHighDPIと同じ方法）
-    this.translateX = this.canvas.width / 2;
-    this.translateY = this.canvas.height / 2;
-    
-    // キャンバスの変換行列も初期化
-    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    
-    // 描画状態の初期化
-    this.isDrawing = false;
-    this.currentPath = [];
-    this.polylinePoints = [];
-    this.isPolylineActive = false;
-    this.selectedTextBox = null;
-    this.isResizing = false;
-    this.resizeHandle = null;
-    
-    // プレビュー状態の初期化
-    this.showShapePreview = false;
-    this.showEraserPreview = false;
-    this.eraserPreviewCoords = null;
-    this.previewEndPoint = null;
-    
-    // ボタン状態も更新
-    this.updateUndoRedoButtons();
-    
-    console.log('全履歴・状態クリア完了');
   }
 }

@@ -11,12 +11,19 @@ class FloorPlanApp {
     this.shapeRecognizer = null;
     this.startScreen = null;
     this.isInitialized = false;
+    this.listenersSetup = false; // リスナー重複防止フラグ
+    this.eventListenersSetup = false; // ツールボタンイベントリスナー重複防止フラグ
+    this.isDarkMode = this.loadDarkModePreference(); // ダークモード状態
+    this.initDarkMode();
     this.init();
   }
 
   init() {
-    // スタートスクリーンイベントリスナーの設定
-    this.setupStartScreenListeners();
+    // スタートスクリーンイベントリスナーの設定（1回のみ）
+    if (!this.listenersSetup) {
+      this.setupStartScreenListeners();
+      this.listenersSetup = true;
+    }
     
     // 初期化は新規プロジェクト開始時に実行
     document.addEventListener('DOMContentLoaded', () => {
@@ -31,7 +38,18 @@ class FloorPlanApp {
   setupStartScreenListeners() {
     // 新規プロジェクト開始
     window.addEventListener('startNewProject', () => {
-      this.initializeDrawingApp();
+      if (this.isInitialized) {
+        // 既に初期化済みの場合は完全リセット
+        this.resetCanvasState();
+        // ツールもペンにリセット
+        if (this.toolManager) {
+          this.toolManager.setTool('pen');
+          this.canvas.setTool('pen');
+          this.updateToolUI('pen');
+        }
+      } else {
+        this.initializeDrawingApp();
+      }
     });
 
     // プロジェクト復元
@@ -45,19 +63,37 @@ class FloorPlanApp {
       this.initializeDrawingApp();
       this.loadBackgroundImage(e.detail.imageUrl);
     });
-
-    // サンプル読み込み
-    window.addEventListener('loadSample', (e) => {
-      this.initializeDrawingApp();
-      this.loadSampleData(e.detail.data);
-    });
   }
 
   initializeDrawingApp() {
-    if (this.isInitialized) return;
+    if (this.isInitialized) {
+      return; // 既に初期化済みの場合は何もしない
+    }
 
+    // 既存のキャンバス要素を完全に削除して再作成（イベントハンドラー完全クリア）
+    const canvasContainer = document.querySelector('#drawing-canvas').parentElement;
+    const oldCanvas = document.querySelector('#drawing-canvas');
+    if (oldCanvas) {
+      console.error('既存のcanvas要素を削除します');
+      oldCanvas.remove();
+    }
+    
+    // 新しいキャンバス要素を作成
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'drawing-canvas';
+    newCanvas.style.cssText = oldCanvas ? oldCanvas.style.cssText : 'cursor: crosshair; touch-action: none;';
+    canvasContainer.appendChild(newCanvas);
+    console.error('新しいcanvas要素を作成しました');
+    
     // キャンバスの初期化
     this.canvas = new DrawingCanvas('#drawing-canvas');
+    
+    // ダークモードに応じた初期色を設定
+    this.canvas.updateStrokeColorForTheme();
+    
+    // グローバル参照を強制更新（デバッグ用）
+    window.drawingCanvas = this.canvas;
+    console.error('グローバル参照更新:', { newInstance: this.canvas });
     
     // ツールマネージャーの初期化
     this.toolManager = new ToolManager();
@@ -72,15 +108,23 @@ class FloorPlanApp {
     // 初期UI設定
     this.updateToolUI('pen');
     
-    // イベントリスナーの設定
+    // イベントリスナーの設定（1回のみ）
     this.setupEventListeners();
     
     // キャンバスサイズの設定
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
+    
+    // 初期化完了フラグを設定
+    this.isInitialized = true;
   }
 
   setupEventListeners() {
+    // 既にイベントリスナーが設定済みの場合はスキップ
+    if (this.eventListenersSetup) {
+      return;
+    }
+    
     // DOMが完全に読み込まれるまで待つ
     document.addEventListener('DOMContentLoaded', () => {
       this.initializeToolButtons();
@@ -90,9 +134,28 @@ class FloorPlanApp {
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
       this.initializeToolButtons();
     }
+    
+    this.eventListenersSetup = true;
   }
 
   initializeToolButtons() {
+    
+    // ホームボタンのイベント
+    const homeBtn = document.getElementById('home-btn');
+    if (homeBtn) {
+      homeBtn.addEventListener('click', () => {
+        this.showConfirmDialog(
+          'ホームに戻る確認',
+          '保存せずにホームに戻ると、現在の作業内容は失われます。本当にホームに戻りますか？',
+          () => {
+            this.resetToHome(); // リロードではなく手動初期化
+          },
+          () => {
+            console.log('ホームへの移動をキャンセルしました');
+          }
+        );
+      });
+    }
     
     // ツールボタンのイベント
     const penTool = document.getElementById('pen-tool');
@@ -140,6 +203,21 @@ class FloorPlanApp {
       console.error('line-tool button not found');
     }
 
+    const polylineGridTool = document.getElementById('polyline-grid-tool');
+    if (polylineGridTool) {
+      polylineGridTool.addEventListener('click', () => {
+        // テキスト編集中の場合は編集中のテキストボックスを削除
+        this.handleToolSwitch();
+        
+        this.toolManager.setTool('polyline-grid');
+        this.canvas.setTool('polyline-grid');
+        this.updateToolButtons('polyline-grid-tool');
+        this.updateToolUI('polyline-grid');
+      });
+    } else {
+      console.error('polyline-grid-tool button not found');
+    }
+
     const rectTool = document.getElementById('rect-tool');
     if (rectTool) {
       rectTool.addEventListener('click', () => {
@@ -163,6 +241,14 @@ class FloorPlanApp {
         
         this.toolManager.setTool('door');
         this.canvas.setTool('door');
+        this.canvas.setDoorType('smallbox'); // デフォルトで開口部を選択
+        
+        // HTMLの選択肢も同期
+        const doorTypeSelect = document.getElementById('door-type');
+        if (doorTypeSelect) {
+          doorTypeSelect.value = 'smallbox';
+        }
+        
         this.updateToolButtons('door-tool');
         this.updateToolUI('door');
       });
@@ -310,22 +396,22 @@ class FloorPlanApp {
       console.error('text-v-tool button not found');
     }
 
-    // ホームボタンのイベント
-    const homeBtn = document.getElementById('home-btn');
-    if (homeBtn) {
-      homeBtn.addEventListener('click', () => {
-        this.returnToStartScreen();
-      });
-    } else {
-      console.error('home-btn button not found');
-    }
-
     // アクションボタンのイベント
     const clearBtn = document.getElementById('clear-btn');
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
         if (this.canvas && typeof this.canvas.clear === 'function') {
-          this.canvas.clear();
+          // カスタム確認ダイアログを表示
+          this.showConfirmDialog(
+            '全消去の確認',
+            '描画内容をすべて消去します。この操作は元に戻せません。\n本当に実行しますか？',
+            () => {
+              this.canvas.clear();
+            },
+            () => {
+              // キャンセル時は何もしない
+            }
+          );
         }
       });
     } else {
@@ -354,6 +440,24 @@ class FloorPlanApp {
       console.error('redo-btn button not found');
     }
 
+    // キーボードショートカット（Ctrl+Z: Undo, Ctrl+Y: Redo）
+    document.addEventListener('keydown', (event) => {
+      if (event.ctrlKey && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        if (this.canvas && typeof this.canvas.undo === 'function') {
+          this.canvas.undo();
+        }
+      } else if (event.ctrlKey && event.key === 'y') {
+        event.preventDefault();
+        if (this.canvas && typeof this.canvas.redo === 'function') {
+          this.canvas.redo();
+        }
+      }
+    });
+
+    // 定型文プルダウン機能
+    this.setupPresetTextFeature();
+
     // 手動最適化ボタンは削除 - 自動最適化で十分
 
     // 統合エクスポートボタンとメニューの実装
@@ -362,10 +466,33 @@ class FloorPlanApp {
     const exportProjectOption = document.getElementById('export-project-option');
     const exportPdfOption = document.getElementById('export-pdf-option');
     const exportImageOption = document.getElementById('export-image-option');
+    const darkModeBtn = document.getElementById('dark-mode-btn');
+
+    console.log('エクスポート要素の確認:', {
+      exportBtn: !!exportBtn,
+      exportMenu: !!exportMenu,
+      exportProjectOption: !!exportProjectOption,
+      exportPdfOption: !!exportPdfOption,
+      exportImageOption: !!exportImageOption,
+      darkModeBtn: !!darkModeBtn
+    });
+
+    // ダークモード切り替えボタン
+    if (darkModeBtn) {
+      console.log('ダークモード機能を初期化します');
+      this.updateDarkModeButton(); // 初期状態を設定
+      
+      darkModeBtn.addEventListener('click', () => {
+        console.log('ダークモード切り替えがクリックされました');
+        this.toggleDarkMode();
+      });
+    }
 
     if (exportBtn && exportMenu && exportProjectOption && exportPdfOption && exportImageOption) {
+      console.log('エクスポート機能を初期化します');
       // エクスポートボタンクリックでメニュー表示/非表示切り替え
       exportBtn.addEventListener('click', (e) => {
+        console.log('エクスポートボタンがクリックされました');
         e.stopPropagation();
         const isVisible = exportMenu.style.display !== 'none';
         exportMenu.style.display = isVisible ? 'none' : 'block';
@@ -376,6 +503,7 @@ class FloorPlanApp {
 
       // プロジェクト保存オプション
       exportProjectOption.addEventListener('click', async () => {
+        console.log('プロジェクトデータ保存がクリックされました');
         exportMenu.style.display = 'none';
         exportBtn.classList.remove('active');
         
@@ -384,14 +512,12 @@ class FloorPlanApp {
         
         // プロジェクトデータを保存
         const success = await this.exportProject();
-        if (success) {
-          // 成功時の視覚フィードバック
-          this.showExportFeedback(exportBtn, 'プロジェクト保存完了！');
-        }
+        // フィードバックメッセージは表示しない
       });
 
       // PDF出力オプション
       exportPdfOption.addEventListener('click', async () => {
+        console.log('PDF出力がクリックされました');
         exportMenu.style.display = 'none';
         exportBtn.classList.remove('active');
         
@@ -400,18 +526,12 @@ class FloorPlanApp {
         
         // PDF出力を実行
         const success = await this.canvas.exportToPDF();
-        if (success) {
-          // 成功時の視覚フィードバック
-          this.showExportFeedback(exportBtn, 'PDF出力完了！');
-          exportBtn.style.transform = 'scale(0.95)';
-          setTimeout(() => {
-            exportBtn.style.transform = '';
-          }, 150);
-        }
+        // フィードバックメッセージは表示しない
       });
 
       // 画像出力オプション
       exportImageOption.addEventListener('click', async () => {
+        console.log('画像出力がクリックされました');
         exportMenu.style.display = 'none';
         exportBtn.classList.remove('active');
         
@@ -420,12 +540,7 @@ class FloorPlanApp {
         
         // 画像エクスポートを実行
         const success = await this.canvas.exportToImage('png', 0.95);
-        if (success) {
-          // 成功時の視覚フィードバック
-          this.showExportFeedback(exportBtn, '画像エクスポート完了！');
-        } else {
-          this.showExportFeedback(exportBtn, 'エクスポートに失敗しました', 'error');
-        }
+        // フィードバックメッセージは表示しない
       });
 
       // メニュー外クリックで閉じる
@@ -439,7 +554,13 @@ class FloorPlanApp {
         e.stopPropagation();
       });
     } else {
-      console.error('Export button or menu elements not found');
+      console.error('エクスポート関連の要素が見つかりません:', {
+        exportBtn: !!exportBtn,
+        exportMenu: !!exportMenu,
+        exportProjectOption: !!exportProjectOption,
+        exportPdfOption: !!exportPdfOption,
+        exportImageOption: !!exportImageOption
+      });
     }
 
     // オフライン対応機能の初期化
@@ -490,7 +611,7 @@ class FloorPlanApp {
       });
     }
 
-    // 扉の種類選択（扉ツール専用）
+    // 建具の種類選択（建具ツール専用）
     const doorType = document.getElementById('door-type');
     if (doorType) {
       doorType.addEventListener('change', (e) => {
@@ -713,6 +834,9 @@ class FloorPlanApp {
           this.canvas.redrawCanvas();
         }
       });
+      
+      // ダークモードに応じた初期色を設定
+      strokeColor.value = this.canvas.strokeColor;
       
       console.log('stroke-color要素のイベントリスナー設定完了');
     } else {
@@ -1070,7 +1194,7 @@ class FloorPlanApp {
     }
     
     if (doorControl) {
-      // 扉ツール選択時のみ表示
+      // 建具ツール選択時のみ表示
       doorControl.style.display = tool === 'door' ? 'flex' : 'none';
     }
     
@@ -1277,17 +1401,17 @@ class FloorPlanApp {
 
   // エクスポート完了時の視覚フィードバック
   showExportFeedback(button, message, type = 'success') {
-    const originalText = button.textContent;
+    const originalHTML = button.innerHTML;
     const originalColor = button.style.backgroundColor;
     
     // フィードバック表示
-    button.textContent = message;
+    button.innerHTML = message;
     button.style.backgroundColor = type === 'error' ? '#ff6b6b' : '#4CAF50';
     button.style.transform = 'scale(0.95)';
     
     // 2秒後に元に戻す
     setTimeout(() => {
-      button.textContent = originalText;
+      button.innerHTML = originalHTML;
       button.style.backgroundColor = originalColor;
       button.style.transform = '';
     }, 2000);
@@ -1317,8 +1441,8 @@ class FloorPlanApp {
         }
       }
 
-      // UIを更新
-      this.canvas.redraw();
+      // UIを更新 - redrawCanvasメソッドを使用
+      this.canvas.redrawCanvas();
       
       // 自動保存を有効にするために初期化完了をマーク
       this.isInitialized = true;
@@ -1341,40 +1465,6 @@ class FloorPlanApp {
       
     } catch (error) {
       console.error('背景画像の読み込みに失敗:', error);
-    }
-  }
-
-  // サンプルデータの読み込み
-  loadSampleData(sampleData) {
-    if (!this.canvas || !sampleData) return;
-
-    try {
-      // サンプルデータを読み込み
-      this.canvas.loadFromData(sampleData);
-      
-      // 設定も適用
-      if (sampleData.settings) {
-        if (sampleData.settings.gridSize) {
-          this.canvas.setGridSize(sampleData.settings.gridSize);
-        }
-        if (sampleData.settings.scale) {
-          this.canvas.setScale(sampleData.settings.scale);
-        }
-        if (sampleData.settings.offsetX !== undefined || sampleData.settings.offsetY !== undefined) {
-          this.canvas.setOffset(sampleData.settings.offsetX || 0, sampleData.settings.offsetY || 0);
-        }
-      }
-
-      // UIを更新
-      this.canvas.redraw();
-      
-      console.log('サンプルデータを読み込みました:', sampleData.paths?.length + '個のパス');
-      
-      // 自動保存を有効にするために初期化完了をマーク
-      this.isInitialized = true;
-
-    } catch (error) {
-      console.error('サンプルデータの読み込みに失敗:', error);
     }
   }
 
@@ -1423,23 +1513,35 @@ class FloorPlanApp {
 
   // 初期画面に戻る
   returnToStartScreen() {
+    console.error('returnToStartScreen呼び出し開始');
+    
     // 確認ダイアログを表示
-    const hasUnsavedChanges = this.canvas && this.canvas.allPaths && this.canvas.allPaths.length > 0;
+    const hasUnsavedChanges = this.canvas && (
+      (this.canvas.allPaths && this.canvas.allPaths.length > 0)
+    );
+    console.error('作業データチェック:', { 
+      hasUnsavedChanges, 
+      allPathsLength: this.canvas?.allPaths?.length || 0
+    });
     
     if (hasUnsavedChanges) {
+      console.error('作業データあり - 確認ダイアログ表示');
       this.showConfirmDialog(
         '作業データの確認',
         '作業中のデータがあります。初期画面に戻りますか？\n\n※ 保存せずに戻ると、現在の作業は失われます。',
         () => {
+          console.error('確認ダイアログ - OK選択');
           // OK押下時の処理
           this.executeReturnToStartScreen();
         },
         () => {
+          console.error('確認ダイアログ - キャンセル選択');
           // キャンセル押下時の処理（何もしない）
           console.log('初期画面への移動をキャンセルしました');
         }
       );
     } else {
+      console.error('作業データなし - 直接実行');
       // データがない場合は直接実行
       this.executeReturnToStartScreen();
     }
@@ -1447,8 +1549,12 @@ class FloorPlanApp {
 
   // 実際の初期画面移行処理
   executeReturnToStartScreen() {
+    console.error('executeReturnToStartScreen: 開始');
+    
     // アプリケーションの状態を完全にリセット
+    console.error('executeReturnToStartScreen: resetApplicationState呼び出し前');
     this.resetApplicationState();
+    console.error('executeReturnToStartScreen: resetApplicationState呼び出し後');
 
     // アプリ画面を非表示
     const appElement = document.getElementById('app');
@@ -1468,7 +1574,7 @@ class FloorPlanApp {
       window.startScreen.loadLastSession();
     }
 
-    console.log('初期画面に戻り、アプリケーション状態をリセットしました');
+    console.error('executeReturnToStartScreen: 完了');
   }
 
   // カスタム確認ダイアログ
@@ -1549,12 +1655,118 @@ class FloorPlanApp {
     document.addEventListener('keydown', handleKeyDown);
   }
 
+  // キャンバス状態のみをリセット（初期化済みの場合の新規作成用）
+  resetCanvasState() {
+    if (!this.canvas) return;
+    
+    console.error('resetCanvasState: 開始');
+    
+    // テキスト編集中の場合は先に終了
+    this.handleToolSwitch();
+    
+    // キャンバスコンテキストを完全にクリア
+    this.canvas.ctx.clearRect(0, 0, this.canvas.canvas.width, this.canvas.canvas.height);
+    
+    // デバッグ: クリア前の状態を確認
+    console.error('クリア前の状態:', {
+      allPathsLength: this.canvas.allPaths.length,
+      historyLength: this.canvas.history ? this.canvas.history.length : 'undefined',
+      currentTool: this.canvas.currentTool
+    });
+    
+    // キャンバスの完全クリア
+    this.canvas.allPaths = [];
+    this.canvas.history = [];
+    this.canvas.redoStack = [];
+    this.canvas.segmentHistory = [];
+    this.canvas.segmentRedoStack = [];
+    this.canvas.eraserHistory = [];
+    this.canvas.eraserRedoStack = [];
+    this.canvas.lastOperationType = null;
+    
+    // 描画プレビュー関連もクリア
+    this.canvas.showShapePreview = false;
+    this.canvas.startPoint = null;
+    this.canvas.previewEndPoint = null;
+    
+    // ビューポート・変換行列の初期化
+    this.canvas.scale = 1;
+    this.canvas.translateX = this.canvas.canvas.width / 2;
+    this.canvas.translateY = this.canvas.canvas.height / 2;
+    this.canvas.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    // テキストボックス関連もクリア
+    if (this.canvas.selectedTextBox) {
+      this.canvas.selectedTextBox = null;
+    }
+    if (this.canvas.isDraggingTextBox) {
+      this.canvas.isDraggingTextBox = false;
+    }
+    
+    // 描画状態もクリア
+    this.canvas.isDrawing = false;
+    this.canvas.currentPath = [];
+    
+    // マルチタッチ関連の状態もリセット
+    this.canvas.isMultiTouch = false;
+    this.canvas.multiTouchCooldown = false;
+    this.canvas.isPinching = false;
+    this.canvas.lastMultiTouchTime = 0;
+    this.canvas.isShowingTouchPreview = false;
+    
+    // ツールを明示的にペンツールにリセット
+    console.error('ツールリセット前:', { currentTool: this.canvas.currentTool });
+    this.canvas.setTool('pen');
+    this.toolManager.setTool('pen');
+    this.updateToolUI('pen');
+    console.error('ツールリセット後:', { currentTool: this.canvas.currentTool });
+    
+    // デバッグ: クリア後の状態を確認
+    console.error('クリア後の状態:', {
+      allPathsLength: this.canvas.allPaths.length,
+      historyLength: this.canvas.history ? this.canvas.history.length : 'undefined',
+      currentTool: this.canvas.currentTool
+    });
+    
+    // キャンバスを再描画してクリア
+    this.canvas.redrawCanvas();
+    
+    // 選択状態をクリア
+    this.canvas.clearSelection();
+    
+    // 背景画像もクリア
+    if (this.canvas.backgroundImage) {
+      this.canvas.backgroundImage = null;
+    }
+    
+    // テキスト関連の状態もクリア
+    if (this.canvas.textInput) {
+      this.canvas.removeTextInput();
+    }
+    
+    // アンドゥ/リドゥボタンの状態を更新
+    if (typeof this.canvas.updateUndoRedoButtons === 'function') {
+      console.error('resetCanvasState: updateUndoRedoButtons呼び出し前');
+      this.canvas.updateUndoRedoButtons();
+      console.error('resetCanvasState: updateUndoRedoButtons呼び出し後');
+    }
+    
+    console.error('resetCanvasState: 完了');
+  }
+
   // アプリケーション状態の完全リセット
   resetApplicationState() {
     try {
+      console.error('resetApplicationState: 開始');
+      
       // テキスト編集中の場合は先に終了
       if (this.canvas) {
         this.handleToolSwitch();
+        
+        console.error('resetApplicationState - クリア前のツール:', { currentTool: this.canvas.currentTool });
+        
+        // キャンバスコンテキストを完全にクリア
+        this.canvas.ctx.clearRect(0, 0, this.canvas.canvas.width, this.canvas.canvas.height);
         
         // キャンバスの完全クリア
         this.canvas.allPaths = [];
@@ -1562,6 +1774,24 @@ class FloorPlanApp {
         this.canvas.redoStack = [];
         this.canvas.segmentHistory = [];
         this.canvas.segmentRedoStack = [];
+        
+        // テキストボックス関連もクリア
+        if (this.canvas.selectedTextBox) {
+          this.canvas.selectedTextBox = null;
+        }
+        if (this.canvas.isDraggingTextBox) {
+          this.canvas.isDraggingTextBox = false;
+        }
+        
+        // 描画状態もクリア
+        this.canvas.isDrawing = false;
+        this.canvas.currentPath = [];
+        
+        // ツールを明示的にペンツールにリセット
+        this.canvas.setTool('pen');
+        this.toolManager.setTool('pen');
+        this.updateToolUI('pen');
+        console.error('resetApplicationState - ツールリセット後:', { currentTool: this.canvas.currentTool });
         
         // キャンバスを再描画してクリア
         this.canvas.redrawCanvas();
@@ -1594,7 +1824,7 @@ class FloorPlanApp {
       // UIの状態をリセット
       this.resetUIState();
       
-      console.log('アプリケーション状態を完全にリセットしました');
+      console.error('resetApplicationState: 完了');
       
     } catch (error) {
       console.error('アプリケーション状態のリセット中にエラー:', error);
@@ -1647,6 +1877,287 @@ class FloorPlanApp {
     } catch (error) {
       console.error('自動保存データのクリア中にエラー:', error);
     }
+  }
+
+  // ホームに戻る機能
+  showStartScreen() {
+    console.log('スタートスクリーンに戻ります');
+    
+    // アプリを非表示にする
+    const appElement = document.getElementById('app');
+    if (appElement) {
+      appElement.style.display = 'none';
+    }
+    
+    // スタートスクリーンを表示
+    const startScreen = document.getElementById('start-screen');
+    if (startScreen) {
+      startScreen.style.display = 'flex';
+    }
+    
+    // 現在の作業を保存するかの確認（任意）
+    // if (this.canvas && this.canvas.allPaths.length > 0) {
+    //   if (confirm('現在の作業を保存しますか？')) {
+    //     // 自動保存処理
+    //     this.saveToLocalStorage();
+    //   }
+    // }
+  }
+
+  // ダークモード機能
+  initDarkMode() {
+    // 初期状態を適用
+    this.applyDarkMode();
+  }
+
+  loadDarkModePreference() {
+    // ローカルストレージから設定を読み込み、デフォルトはライトモード
+    const saved = localStorage.getItem('darkMode');
+    return saved === 'true';
+  }
+
+  saveDarkModePreference() {
+    localStorage.setItem('darkMode', this.isDarkMode.toString());
+  }
+
+  toggleDarkMode() {
+    this.isDarkMode = !this.isDarkMode;
+    this.applyDarkMode();
+    this.saveDarkModePreference();
+    
+    // ダークモードボタンのアイコンを更新
+    this.updateDarkModeButton();
+    
+    // キャンバスの線色も更新（初期化済みの場合のみ）
+    if (this.canvas) {
+      this.canvas.updateStrokeColorForTheme();
+    }
+  }
+
+  applyDarkMode() {
+    const body = document.body;
+    if (this.isDarkMode) {
+      body.setAttribute('data-theme', 'dark');
+    } else {
+      body.removeAttribute('data-theme');
+    }
+  }
+
+  updateDarkModeButton() {
+    const darkModeBtn = document.getElementById('dark-mode-btn');
+    const darkModeIcon = document.getElementById('dark-mode-icon');
+    
+    console.log('updateDarkModeButton:', { 
+      isDarkMode: this.isDarkMode, 
+      darkModeBtn: !!darkModeBtn, 
+      darkModeIcon: !!darkModeIcon 
+    });
+    
+    if (darkModeBtn && darkModeIcon) {
+      // ダークモード時は太陽、ライトモード時は月
+      const newSrc = this.isDarkMode ? 
+        `${import.meta.env.BASE_URL}sun.png` : 
+        `${import.meta.env.BASE_URL}moom.png`;
+      console.log('画像パス変更:', darkModeIcon.src, '→', newSrc);
+      
+      darkModeIcon.src = newSrc;
+      darkModeIcon.alt = this.isDarkMode ? 'ライトモード' : 'ダークモード';
+      darkModeBtn.title = this.isDarkMode ? 'ライトモード切り替え' : 'ダークモード切り替え';
+      
+      // 画像の読み込み確認
+      darkModeIcon.onerror = function() {
+        console.error('画像読み込みエラー:', newSrc);
+      };
+      darkModeIcon.onload = function() {
+        console.log('画像読み込み成功:', newSrc);
+      };
+    } else {
+      console.error('ダークモードボタン要素が見つかりません');
+    }
+  }
+
+  // 定型文プルダウン機能の設定
+  setupPresetTextFeature() {
+    const presetSelect = document.getElementById('preset-text-select');
+    const placeBtn = document.getElementById('preset-text-place');
+    
+    if (!presetSelect || !placeBtn) {
+      console.error('定型文要素が見つかりません');
+      return;
+    }
+
+    // 初期状態では配置ボタンを無効化
+    placeBtn.disabled = true;
+
+    // プルダウン選択時
+    presetSelect.addEventListener('change', () => {
+      const selectedText = presetSelect.value;
+      placeBtn.disabled = !selectedText;
+      
+      if (selectedText) {
+        console.log('定型文選択:', selectedText);
+      }
+    });
+
+    // 配置ボタンクリック時
+    placeBtn.addEventListener('click', () => {
+      const selectedText = presetSelect.value;
+      if (!selectedText) return;
+
+      console.log('定型文配置:', selectedText);
+      this.placePresetText(selectedText);
+      
+      // 選択をリセット
+      presetSelect.value = '';
+      placeBtn.disabled = true;
+    });
+  }
+
+  // 定型文をキャンバスに配置
+  placePresetText(text) {
+    if (!this.canvas) return;
+
+    // キャンバスの中央に配置
+    const canvasRect = this.canvas.canvas.getBoundingClientRect();
+    const centerX = (canvasRect.width / 2 - this.canvas.translateX) / this.canvas.scale;
+    const centerY = (canvasRect.height / 2 - this.canvas.translateY) / this.canvas.scale;
+
+    // テキストボックスとして追加
+    const textBoxData = {
+      tool: 'textbox',
+      text: text,
+      x: centerX,
+      y: centerY,
+      width: text.length * 48 + 40, // 48px文字サイズに応じて幅を調整
+      height: 60, // 48px文字サイズに応じて高さを調整
+      fontSize: 48, // 標準文字サイズを48pxに変更
+      strokeColor: this.canvas.strokeColor,
+      isVertical: false,
+      isSelected: false,
+      isPreset: true // プリセットテキストフラグを追加
+    };
+
+    this.canvas.allPaths.push(textBoxData);
+    this.canvas.lastOperationType = 'path';
+    this.canvas.redoStack = [];
+    
+    this.canvas.redrawCanvas();
+    
+    console.log('定型文テキストボックス作成完了:', text);
+  }
+
+  // ホームに戻る（リロードなし初期化）
+  resetToHome() {
+    console.log('ホームに戻る - リロードなし初期化開始');
+    
+    // キャンバスの完全初期化
+    if (this.canvas) {
+      // 新しい履歴クリアメソッドを使用
+      if (typeof this.canvas.clearAllHistory === 'function') {
+        this.canvas.clearAllHistory();
+      } else {
+        // フォールバック: 手動で履歴をクリア
+        this.canvas.allPaths = [];
+        this.canvas.redoStack = [];
+        this.canvas.segmentHistory = [];
+        this.canvas.eraserHistory = [];
+        this.canvas.history = [];
+        this.canvas.segmentRedoStack = [];
+        this.canvas.eraserRedoStack = [];
+        this.canvas.lastOperationType = null;
+        this.canvas.operationHistory = [];
+        
+        // ビューポート・変換行列の初期化
+        this.canvas.scale = 1;
+        this.canvas.translateX = this.canvas.canvas.width / 2;
+        this.canvas.translateY = this.canvas.canvas.height / 2;
+        this.canvas.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      
+      // 選択状態をクリア
+      this.canvas.selectedTextBox = null;
+      this.canvas.isResizing = false;
+      this.canvas.resizeHandle = null;
+      
+      // 描画状態の確実な初期化
+      this.canvas.isDrawing = false;
+      this.canvas.currentPath = [];
+      this.canvas.polylinePoints = [];
+      this.canvas.isPolylineActive = false;
+      
+      // ツールを初期状態に戻す
+      this.canvas.currentTool = 'pen';
+      this.canvas.strokeWidth = 2;
+      this.canvas.strokeColor = '#000000';
+      this.canvas.fontSize = 48;
+      
+      // キャンバスを再描画
+      this.canvas.redrawCanvas();
+    }
+    
+    // UIを初期状態に戻す
+    this.resetUI();
+    
+    // スタート画面を表示
+    this.showStartScreen();
+    
+    console.log('ホームに戻る - 初期化完了');
+  }
+  
+  // UI要素を初期状態に戻す
+  resetUI() {
+    // ツールボタンの選択状態をリセット
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    
+    // ペンツールを選択状態にする
+    const penBtn = document.getElementById('pen-tool');
+    if (penBtn) {
+      penBtn.classList.add('active');
+    }
+    
+    // スライダー値を初期値に戻す
+    const penWidthSlider = document.getElementById('pen-width');
+    const eraserSizeSlider = document.getElementById('eraser-size');
+    const strokeColorPicker = document.getElementById('stroke-color');
+    const fontSizeSelect = document.getElementById('font-size');
+    
+    if (penWidthSlider) {
+      penWidthSlider.value = 2;
+    }
+    
+    if (eraserSizeSlider) {
+      eraserSizeSlider.value = 30;
+    }
+    
+    if (strokeColorPicker) {
+      strokeColorPicker.value = '#000000';
+    }
+    
+    if (fontSizeSelect) {
+      fontSizeSelect.value = '48';
+    }
+    
+    // プリセットテキストのドロップダウンをリセット
+    const presetSelect = document.getElementById('preset-text-select');
+    if (presetSelect) {
+      presetSelect.value = '';
+    }
+    
+    // アンドゥ・リドゥボタンを確実に無効化
+    const undoBtn = document.getElementById('undo-btn');
+    const redoBtn = document.getElementById('redo-btn');
+    if (undoBtn) {
+      undoBtn.disabled = true;
+      undoBtn.style.opacity = '0.5';
+    }
+    if (redoBtn) {
+      redoBtn.disabled = true;
+      redoBtn.style.opacity = '0.5';
+    }
+    
+    console.log('UI初期化完了 - undo/redoボタン無効化');
   }
 }
 

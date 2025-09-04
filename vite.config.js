@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  // GitHub Pages用のベースパス（リポジトリ名に合わせて変更）
+  // ベースパス設定（デプロイ先に応じて変更）
+  // GitHub Pages用: '/hemenzu/'  
+  // ルートドメイン用: './' または '/'
   base: process.env.NODE_ENV === 'production' ? '/hemenzu/' : './',
   build: {
     outDir: 'dist',

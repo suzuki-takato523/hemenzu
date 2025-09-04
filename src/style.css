@@ -1,18 +1,63 @@
 /* 平面図描画アプリのスタイル */
+
+/* カラーテーマの定義 */
+:root {
+  /* ライトモード */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --border-color: #e0e0e0;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --toolbar-bg: #ffffff;
+  --button-bg: #ffffff;
+  --button-hover: #f8f9ff;
+  --button-active: #f0fff0;
+  --accent-color: #667eea;
+  --success-color: #4CAF50;
+  --canvas-bg: #ffffff;
+}
+
+/* ダークモード */
+[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #2d2d2d;
+  --bg-gradient: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  --text-primary: #ffffff;
+  --text-secondary: #cccccc;
+  --border-color: #404040;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --toolbar-bg: #2d2d2d;
+  --button-bg: #3d3d3d;
+  --button-hover: #4d4d4d;
+  --button-active: #5d5d5d;
+  --accent-color: #7289da;
+  --success-color: #5cb85c;
+  --canvas-bg: #2d2d2d;
+  --img-filter: invert(1) brightness(0.8);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-/* 初期画面スタイル */
+body {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* スタートスクリーンのスタイル */
 .start-screen {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--bg-gradient);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -20,10 +65,14 @@
   font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
 }
 
+.start-screen.hidden {
+  display: none;
+}
+
 .start-container {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 20px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 40px var(--shadow-color);
   padding: 40px;
   max-width: 500px;
   width: 90vw;
@@ -42,116 +91,87 @@
   }
 }
 
-.app-header {
-  margin-bottom: 40px;
-}
-
-.app-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
+.start-header {
+  margin-bottom: 30px;
 }
 
 .app-title {
   font-size: 28px;
   font-weight: 700;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
 .app-description {
   font-size: 16px;
-  color: #666;
-  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 0;
 }
 
 .start-options {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-bottom: 32px;
+  margin-bottom: 30px;
 }
 
 .start-option-btn {
-  display: flex;
-  align-items: center;
-  padding: 20px;
-  border: none;
+  background: var(--bg-primary);
+  border: 2px solid var(--border-color);
   border-radius: 12px;
+  padding: 20px;
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: left;
-  font-family: inherit;
-}
-
-.start-option-btn.primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.start-option-btn.secondary {
-  background: #f8f9fa;
-  color: #333;
-  border: 2px solid #e9ecef;
+  width: 100%;
+  color: var(--text-primary);
 }
 
 .start-option-btn:hover {
+  border-color: var(--accent-color);
+  background: var(--button-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-.start-option-btn.primary:hover {
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
 }
 
 .start-option-btn.has-data {
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-  color: white;
-  border-color: #4CAF50;
+  border-color: var(--success-color);
+  background: #f8fff8;
 }
 
 .start-option-btn.has-data:hover {
-  box-shadow: 0 8px 25px rgba(76, 175, 80, 0.4);
-  transform: translateY(-3px);
+  border-color: #4CAF50;
+  background: #f0fff0;
 }
 
-.start-option-btn.has-data .option-icon {
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%, 20%, 50%, 80%, 100% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(-3px);
-  }
-  60% {
-    transform: translateY(-1px);
-  }
+.option-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .option-icon {
   font-size: 32px;
-  margin-right: 16px;
-  flex-shrink: 0;
+  margin-right: 0;
 }
 
 .option-content h3 {
   font-size: 18px;
   font-weight: 600;
+  color: #333;
   margin-bottom: 4px;
 }
 
 .option-content p {
   font-size: 14px;
-  opacity: 0.8;
-  line-height: 1.4;
+  color: #666;
+  margin: 0;
 }
 
 .start-footer {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   padding-top: 20px;
   border-top: 1px solid #eee;
 }
@@ -202,11 +222,10 @@
     flex-direction: column;
     gap: 12px;
   }
-}
-
-/* メインアプリが表示された時は初期画面を隠す */
-.start-screen.hidden {
-  display: none;
+  
+  .sample-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
 }
 
 body {
@@ -235,14 +254,14 @@ body {
 }
 
 .toolbar {
-  background: #ffffff;
-  border-bottom: 1px solid #e0e0e0;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border-color);
   padding: 10px;
   display: flex;
   align-items: flex-start;
   gap: 15px;
   flex-wrap: wrap;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px var(--shadow-color);
   min-height: 60px;
 }
 
@@ -254,47 +273,42 @@ body {
 }
 
 .tool-btn {
-  background: #ffffff;
-  border: 2px solid #e0e0e0;
+  background: var(--button-bg);
+  border: 2px solid var(--border-color);
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px;
   cursor: pointer;
-  font-size: 18px;
-  transition: all 0.2s ease;
-  min-width: 44px;
-  min-height: 44px;
+  transition: all 0.3s ease;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  user-select: none;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  color: var(--text-primary);
+}
+
+/* ツールボタン内の画像スタイル */
+.tool-btn img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  pointer-events: none;
+  filter: var(--img-filter, none);
 }
 
 .tool-btn:hover {
-  background: #f0f0f0;
-  border-color: #c0c0c0;
+  background: var(--button-hover);
+  border-color: var(--accent-color);
 }
 
 .tool-btn.active {
   background: #007ACC;
   color: white;
   transform: scale(0.95);
-}
-
-/* ホームボタン専用スタイル */
-.tool-btn.home-btn {
-  background: #4CAF50;
-  color: white;
-  border-color: #45a049;
-  font-weight: bold;
-  margin-right: 12px;
-}
-
-.tool-btn.home-btn:hover {
-  background: #45a049;
-  border-color: #3d8b40;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
-}
-
-.tool-btn.home-btn:active {
-  transform: scale(0.95);
-  background: #3d8b40;
 }
 
 #export-btn.active {
@@ -304,6 +318,105 @@ body {
 
 .tool-btn:active {
   transform: scale(0.95);
+}
+
+/* 定型文プルダウンのスタイル */
+.preset-text-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 8px;
+  padding: 10px; /* iPadでの見た目とタップ領域を考慮 */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  height: 48px; /* ツールボタンと同じ高さに設定 */
+  box-sizing: border-box; /* paddingを含めた高さ計算 */
+}
+
+.preset-text-select {
+  background: var(--button-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 5px 8px; /* iPadでの操作性を考慮 */
+  font-size: 12px; /* iPadで読みやすいサイズ */
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 150px;
+  height: 28px; /* ボタンと同じ高さに */
+  box-sizing: border-box;
+}
+
+.preset-text-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.preset-text-btn {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 4px 8px; /* iPadのタップ操作を考慮して少し大きく */
+  border-radius: 4px;
+  font-size: 12px; /* iPadで読みやすいサイズに */
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  width: auto;
+  height: 28px; /* iPadのタップ操作に適した高さ */
+  min-width: 44px; /* iPadのタップターゲット推奨サイズ（44px）に近づける */
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+/* iPad専用の配置ボタンスタイル - より具体的で強制適用 */
+@media (pointer: coarse) and (any-hover: none), 
+       (-webkit-touch-callout: default),
+       (max-width: 1366px) and (max-height: 1024px) {
+  .preset-text-btn {
+    height: 28px !important;
+    min-height: 28px !important;
+    max-height: 28px !important;
+    padding: 2px 8px !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+}
+
+.preset-text-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.preset-text-btn:active {
+  transform: translateY(0);
+}
+
+.preset-text-btn:disabled {
+  background: var(--border-color);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ホームボタン専用スタイル */
+#home-btn {
+  background: #4CAF50;
+  color: white;
+  border: 2px solid #45a049;
+}
+
+#home-btn:hover {
+  background: #45a049;
+  transform: scale(1.05);
+}
+
+#home-btn:active {
+  background: #3d8b40;
 }
 
 #stroke-width {
@@ -538,7 +651,7 @@ body {
 
 #drawing-canvas {
   display: block;
-  background: white;
+  background: var(--canvas-bg);
   cursor: crosshair;
   width: 100%;
   height: 100%;
@@ -550,7 +663,7 @@ body {
 
 #drawing-canvas.no-grid {
   background-image: none;
-  background: white;
+  background: var(--canvas-bg);
 }
 
 /* Shiftキー押下時の視覚フィードバック */
@@ -831,188 +944,42 @@ body {
   }
 }
 
-/* サンプルモーダル */
-.sample-modal {
+/* 確認ダイアログのスタイル */
+.custom-confirm-dialog {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  backdrop-filter: blur(2px);
+  z-index: 10000;
 }
 
-.sample-modal-content {
-  background: white;
-  border-radius: 16px;
-  max-width: 600px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  animation: modalSlideIn 0.3s ease-out;
-}
-
-@keyframes modalSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9) translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.sample-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.sample-modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #666;
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.close-btn:hover {
-  background: #f0f0f0;
-  color: #333;
-}
-
-.sample-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 16px;
-  padding: 24px;
-}
-
-.sample-item {
-  border: 2px solid #e8e8e8;
-  border-radius: 12px;
-  padding: 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  background: white;
-}
-
-.sample-item:hover {
-  border-color: #4CAF50;
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(76, 175, 80, 0.15);
-}
-
-.sample-preview {
-  font-size: 48px;
-  margin-bottom: 12px;
-  opacity: 0.8;
-  transition: all 0.3s ease;
-}
-
-.sample-item:hover .sample-preview {
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.sample-item h4 {
-  margin: 0 0 8px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-}
-
-.sample-item p {
-  margin: 0;
-  font-size: 14px;
-  color: #666;
-  line-height: 1.4;
-}
-
-/* エラーメッセージ */
-.error-message {
-  animation: errorSlideIn 0.3s ease-out;
-}
-
-@keyframes errorSlideIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -60%);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%);
-  }
-}
-
-/* タッチデバイス用の調整 */
-@media (pointer: coarse) {
-  .sample-modal-content {
-    width: 95%;
-  }
-  
-  .sample-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .sample-item {
-    padding: 24px;
-  }
-  
-  .close-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 28px;
-  }
-}
-
-/* カスタム確認ダイアログ */
 .confirm-dialog-backdrop {
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
 }
 
 .confirm-dialog-content {
   background: white;
   border-radius: 12px;
-  max-width: 480px;
-  width: 90%;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  animation: dialogSlideIn 0.3s ease-out;
+  max-width: 350px; /* 横幅を少し短く調整 */
+  width: 100%;
+  animation: confirmDialogShow 0.3s ease-out;
 }
 
-@keyframes dialogSlideIn {
+@keyframes confirmDialogShow {
   from {
     opacity: 0;
-    transform: scale(0.9) translateY(-20px);
+    transform: scale(0.9) translateY(-10px);
   }
   to {
     opacity: 1;
@@ -1021,32 +988,34 @@ body {
 }
 
 .confirm-dialog-header {
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid #e8e8e8;
+  padding: 20px 20px 10px 20px;
+  border-bottom: 1px solid #e0e0e0;
 }
 
 .confirm-dialog-header h3 {
-  margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: #333;
+  margin: 0;
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
 }
 
 .confirm-dialog-body {
-  padding: 20px 24px;
+  padding: 20px;
 }
 
 .confirm-dialog-body p {
-  margin: 0;
   font-size: 14px;
-  line-height: 1.6;
-  color: #555;
+  line-height: 1.5;
+  color: #666;
+  margin: 0;
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
 }
 
 .confirm-dialog-actions {
+  padding: 10px 20px 20px 20px;
   display: flex;
-  gap: 12px;
-  padding: 16px 24px 20px;
+  gap: 10px;
   justify-content: flex-end;
 }
 
@@ -1056,48 +1025,49 @@ body {
   border: none;
   border-radius: 6px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 80px;
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
 }
 
 .confirm-btn-cancel {
-  background: #f8f9fa;
-  color: #6c757d;
-  border: 1px solid #dee2e6;
+  background: #f5f5f5;
+  color: #666;
 }
 
 .confirm-btn-cancel:hover {
-  background: #e9ecef;
-  color: #495057;
+  background: #e8e8e8;
 }
 
 .confirm-btn-ok {
-  background: #ff6b6b;
+  background: #ff4757;
   color: white;
 }
 
 .confirm-btn-ok:hover {
-  background: #ff5252;
-  transform: translateY(-1px);
+  background: #ff3742;
 }
 
-.confirm-btn-ok:active,
-.confirm-btn-cancel:active {
-  transform: scale(0.98);
+.confirm-btn-cancel:active,
+.confirm-btn-ok:active {
+  transform: translateY(1px);
 }
 
-/* タッチデバイス用の調整 */
+/* タッチデバイス用 */
 @media (pointer: coarse) {
   .confirm-dialog-content {
-    width: 95%;
+    max-width: 90vw;
   }
   
   .confirm-btn-cancel,
   .confirm-btn-ok {
     padding: 14px 24px;
     font-size: 16px;
-    min-width: 100px;
+    min-height: 44px;
+  }
+  
+  .confirm-dialog-actions {
+    gap: 12px;
   }
 }
