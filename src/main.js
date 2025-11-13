@@ -54,14 +54,24 @@ class FloorPlanApp {
 
     // プロジェクト復元
     window.addEventListener('restoreProject', (e) => {
-      this.initializeDrawingApp();
-      this.restoreProjectData(e.detail);
+      if (!this.isInitialized) {
+        this.initializeDrawingApp();
+      }
+      // Canvas初期化完了を待ってからデータ復元
+      setTimeout(() => {
+        this.restoreProjectData(e.detail);
+      }, 0);
     });
 
     // 背景画像読み込み
     window.addEventListener('loadBackgroundImage', (e) => {
-      this.initializeDrawingApp();
-      this.loadBackgroundImage(e.detail.imageUrl);
+      if (!this.isInitialized) {
+        this.initializeDrawingApp();
+      }
+      // Canvas初期化完了を待ってから背景画像読み込み
+      setTimeout(() => {
+        this.loadBackgroundImage(e.detail.imageUrl);
+      }, 0);
     });
   }
 
@@ -272,6 +282,19 @@ class FloorPlanApp {
       });
     } else {
       console.error('stairs-tool button not found');
+    }
+
+    const fillTool = document.getElementById('fill-tool');
+    if (fillTool) {
+      fillTool.addEventListener('click', () => {
+        this.handleToolSwitch();
+        this.toolManager.setTool('fill');
+        this.canvas.setTool('fill');
+        this.updateToolButtons('fill-tool');
+        this.updateToolUI('fill');
+      });
+    } else {
+      console.error('fill-tool button not found');
     }
 
     // circle-tool（円ツール）は廃止
@@ -641,12 +664,54 @@ class FloorPlanApp {
       }
     });
 
+    // 階段タイプ切り替え（階段ツール専用）
+    const stairTypeButtons = ['straight', 'l-shape'];
+    stairTypeButtons.forEach(type => {
+      const button = document.getElementById(`stair-type-${type}`);
+      if (button) {
+        button.addEventListener('click', () => {
+          // 他のボタンのactiveクラスを削除
+          stairTypeButtons.forEach(t => {
+            const btn = document.getElementById(`stair-type-${t}`);
+            if (btn) btn.classList.remove('active');
+          });
+          
+          // クリックされたボタンをアクティブに
+          button.classList.add('active');
+          
+          // タイプを設定
+          this.canvas.setStairType(type);
+        });
+      }
+    });
+
     const stairsPreview = document.getElementById('stairs-preview');
     if (stairsPreview) {
       // 初期プレビューを中サイズで設定
       this.canvas.setStairSize('medium'); // キャンバスにも設定
       this.updateStairsPreview('medium');
     }
+
+    // 塗りつぶしサイズ切り替え
+    const fillSizeButtons = ['quarter', 'half', 'one'];
+    fillSizeButtons.forEach(size => {
+      const button = document.getElementById(`fill-size-${size}`);
+      if (button) {
+        button.addEventListener('click', () => {
+          // 他のボタンのactiveクラスを削除
+          fillSizeButtons.forEach(s => {
+            const btn = document.getElementById(`fill-size-${s}`);
+            if (btn) btn.classList.remove('active');
+          });
+          
+          // クリックされたボタンをアクティブに
+          button.classList.add('active');
+          
+          // サイズを設定
+          this.canvas.setFillSize(size);
+        });
+      }
+    });
 
     // 線スタイル切り替え（直線ツール専用）- 3段階切り替え
     const lineStyleToggle = document.getElementById('line-style-toggle');
@@ -707,6 +772,75 @@ class FloorPlanApp {
       console.error('line-style-toggle button not found');
     }
 
+    // カラーセレクターのドロップダウン
+    const colorSelectorBtn = document.getElementById('color-selector-btn');
+    const colorDropdown = document.getElementById('color-dropdown');
+    const currentColorDisplay = document.querySelector('.current-color');
+    
+    if (colorSelectorBtn && colorDropdown) {
+      // ドロップダウンの開閉
+      colorSelectorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        colorDropdown.classList.toggle('show');
+        colorSelectorBtn.classList.toggle('open');
+      });
+      
+      // 外側クリックで閉じる
+      document.addEventListener('click', (e) => {
+        if (!colorDropdown.contains(e.target) && e.target !== colorSelectorBtn) {
+          colorDropdown.classList.remove('show');
+          colorSelectorBtn.classList.remove('open');
+        }
+      });
+    }
+    
+    // カラーパレットのボタン
+    const colorButtons = document.querySelectorAll('.color-btn');
+    colorButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const color = e.target.dataset.color;
+        if (color) {
+          // 色を設定
+          this.canvas.setStrokeColor(color);
+          
+          // カスタムカラーピッカーの値も更新
+          const strokeColorInput = document.getElementById('stroke-color');
+          if (strokeColorInput) {
+            strokeColorInput.value = color;
+          }
+          
+          // 現在の色表示を更新
+          if (currentColorDisplay) {
+            currentColorDisplay.style.background = color;
+          }
+          
+          // ペンプレビューの色も更新
+          const penPreview = document.getElementById('pen-preview');
+          if (penPreview) {
+            penPreview.style.background = color;
+          }
+          
+          // アクティブ状態を更新
+          colorButtons.forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+          
+          // ドロップダウンを閉じる
+          if (colorDropdown) {
+            colorDropdown.classList.remove('show');
+          }
+          if (colorSelectorBtn) {
+            colorSelectorBtn.classList.remove('open');
+          }
+        }
+      });
+    });
+    
+    // 初期状態で黒色をアクティブに
+    const blackButton = document.querySelector('.color-btn[data-color="#000000"]');
+    if (blackButton) {
+      blackButton.classList.add('active');
+    }
+
     const strokeColor = document.getElementById('stroke-color');
     if (strokeColor) {
       
@@ -714,11 +848,41 @@ class FloorPlanApp {
       strokeColor.addEventListener('input', (e) => {
         // inputイベントでも即座に色を更新
         this.canvas.setStrokeColor(e.target.value);
+        
+        // 現在の色表示を更新
+        const currentColorDisplay = document.querySelector('.current-color');
+        if (currentColorDisplay) {
+          currentColorDisplay.style.background = e.target.value;
+        }
+        
         // ペンプレビューの色も更新
+        const penPreview = document.getElementById('pen-preview');
         if (penPreview) {
           penPreview.style.background = e.target.value;
         }
+        
+        // カラーボタンのアクティブ状態を解除（カスタム色の場合）
+        const colorButtons = document.querySelectorAll('.color-btn');
+        colorButtons.forEach(b => b.classList.remove('active'));
       });
+      
+      // パターンボタンの処理
+      const patternDiagonal = document.getElementById('pattern-diagonal');
+      const patternSolid = document.getElementById('pattern-solid');
+      
+      if (patternDiagonal && patternSolid) {
+        patternDiagonal.addEventListener('click', () => {
+          this.canvas.setFillPattern('diagonal');
+          patternDiagonal.classList.add('active');
+          patternSolid.classList.remove('active');
+        });
+        
+        patternSolid.addEventListener('click', () => {
+          this.canvas.setFillPattern('solid');
+          patternSolid.classList.add('active');
+          patternDiagonal.classList.remove('active');
+        });
+      }
       
       strokeColor.addEventListener('change', (e) => {
         
@@ -1182,6 +1346,7 @@ class FloorPlanApp {
     const doorControl = document.getElementById('door-control');
     const stairsControl = document.getElementById('stairs-control');
     const lineControl = document.getElementById('line-control');
+    const fillControl = document.getElementById('fill-control');
     
     if (penWidthControl) {
       // ペンツール選択時のみ表示
@@ -1206,6 +1371,11 @@ class FloorPlanApp {
     if (lineControl) {
       // 直線ツール選択時のみ表示
       lineControl.style.display = tool === 'line' ? 'flex' : 'none';
+    }
+    
+    if (fillControl) {
+      // 塗りつぶしツール選択時のみ表示
+      fillControl.style.display = tool === 'fill' ? 'flex' : 'none';
     }
   }
 
@@ -1422,30 +1592,30 @@ class FloorPlanApp {
     if (!this.canvas || !projectData) return;
 
     try {
-      // パスデータの復元
+      // パスデータと設定の復元（loadFromDataで一括処理）
       if (projectData.paths && Array.isArray(projectData.paths)) {
         this.canvas.loadFromData(projectData);
         console.log('プロジェクトデータを復元しました:', projectData.paths.length + '個のパス');
       }
 
-      // 設定の復元
-      if (projectData.settings) {
-        if (projectData.settings.gridSize) {
-          this.canvas.setGridSize(projectData.settings.gridSize);
-        }
-        if (projectData.settings.scale) {
-          this.canvas.setScale(projectData.settings.scale);
-        }
-        if (projectData.settings.offsetX !== undefined || projectData.settings.offsetY !== undefined) {
-          this.canvas.setOffset(projectData.settings.offsetX || 0, projectData.settings.offsetY || 0);
-        }
-      }
-
-      // UIを更新 - redrawCanvasメソッドを使用
-      this.canvas.redrawCanvas();
-      
-      // 自動保存を有効にするために初期化完了をマーク
-      this.isInitialized = true;
+      // Canvas の完全な初期化を待ってから強制的に再描画
+      // requestAnimationFrame を2回使用して確実にレンダリング完了後に描画
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // スロットリングフラグをリセットして強制再描画
+          this.canvas.redrawRequested = false;
+          if (this.canvas.redrawTimeout) {
+            clearTimeout(this.canvas.redrawTimeout);
+            cancelAnimationFrame(this.canvas.redrawTimeout);
+            this.canvas.redrawTimeout = null;
+          }
+          this.canvas.lastRedrawTime = 0;
+          
+          // 再描画を実行
+          this.canvas.redrawCanvas();
+          console.log('プロジェクト復元後の再描画完了');
+        });
+      });
 
     } catch (error) {
       console.error('プロジェクトデータの復元に失敗:', error);
@@ -1457,11 +1627,15 @@ class FloorPlanApp {
     if (!this.canvas) return;
 
     try {
-      this.canvas.setBackgroundImage(imageUrl);
-      console.log('背景画像を読み込みました');
-      
-      // 自動保存を有効にするために初期化完了をマーク
-      this.isInitialized = true;
+      // TODO: setBackgroundImageメソッドの実装が必要
+      if (typeof this.canvas.setBackgroundImage === 'function') {
+        this.canvas.setBackgroundImage(imageUrl);
+        console.log('背景画像を読み込みました');
+      } else {
+        console.warn('setBackgroundImageメソッドが実装されていません');
+        // 暫定対応: 画像を新規プロジェクトとして開く
+        alert('背景画像機能は現在実装中です。');
+      }
       
     } catch (error) {
       console.error('背景画像の読み込みに失敗:', error);
@@ -1689,8 +1863,8 @@ class FloorPlanApp {
     this.canvas.startPoint = null;
     this.canvas.previewEndPoint = null;
     
-    // ビューポート・変換行列の初期化
-    this.canvas.scale = 1;
+    // ビューポート・変換行列の初期化（デバイスに応じた初期スケール）
+    this.canvas.scale = this.canvas.getInitialScale();
     this.canvas.translateX = this.canvas.canvas.width / 2;
     this.canvas.translateY = this.canvas.canvas.height / 2;
     this.canvas.ctx.setTransform(1, 0, 0, 1, 0, 0);

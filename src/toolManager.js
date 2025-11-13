@@ -16,10 +16,20 @@ export class ToolManager {
         cursor: 'crosshair',
         mode: 'eraser'
       },
+      fill: {
+        name: '塗りつぶし',
+        cursor: 'crosshair',
+        mode: 'fill'
+      },
       line: {
         name: '直線',
         cursor: 'crosshair',
         mode: 'shape'
+      },
+      'polyline-grid': {
+        name: '一筆書き',
+        cursor: 'crosshair',
+        mode: 'polyline'
       },
       rectangle: {
         name: '四角形',

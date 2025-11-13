@@ -84,6 +84,17 @@
     </div>
 
     <div id="app">
+      <!-- エクスポートボタン（右上固定） -->
+      <button id="export-btn" class="export-btn-fixed" title="エクスポート">
+        <img src="/download.png" alt="エクスポート">
+      </button>
+      <!-- エクスポートメニュー -->
+      <div id="export-menu" class="export-menu" style="display: none;">
+        <button id="export-project-option" class="export-option" title="プロジェクトデータとして保存">💾 データ</button>
+        <button id="export-pdf-option" class="export-option" title="PDFとして出力">📄 PDF</button>
+        <button id="export-image-option" class="export-option" title="画像として保存">🖼️ 画像</button>
+      </div>
+
       <header class="toolbar">
         <div class="tool-group">
           <button id="home-btn" class="tool-btn" title="ホームに戻る">
@@ -112,6 +123,9 @@
           </button>
           <button id="text-v-tool" class="tool-btn" title="縦書きテキスト">
             <img src="/text box with vertical writing.png" alt="縦書きテキスト">
+          </button>
+          <button id="fill-tool" class="tool-btn" title="塗りつぶし">
+            <img src="/baketu.png" alt="塗りつぶし">
           </button>
           
           <!-- 定型文プルダウン -->
@@ -206,18 +220,9 @@
           <button id="redo-btn" class="tool-btn" title="やり直し">
             <img src="/go forward one step.png" alt="やり直し">
           </button>
-          <button id="export-btn" class="tool-btn" title="エクスポート">
-            <img src="/download.png" alt="エクスポート">
-          </button>
           <button id="dark-mode-btn" class="tool-btn" title="ダークモード切り替え">
             <img id="dark-mode-icon" src="./moom.png" alt="ダークモード">
           </button>
-        </div>
-        <!-- エクスポートメニュー -->
-        <div id="export-menu" class="export-menu" style="display: none;">
-          <button id="export-project-option" class="export-option" title="プロジェクトデータとして保存">💾 データ</button>
-          <button id="export-pdf-option" class="export-option" title="PDFとして出力">📄 PDF</button>
-          <button id="export-image-option" class="export-option" title="画像として保存">🖼️ 画像</button>
         </div>
         <div class="tool-group">
           <div id="pen-width-control" class="pen-width-group" style="display: none;">
@@ -236,6 +241,9 @@
               <option value="smallbox" selected>開口部</option>
               <option value="single">片開き戸</option>
               <option value="double">両開き戸</option>
+              <option value="circle">○(0.5マス)</option>
+              <option value="square">□(0.5マス)</option>
+              <option value="cross">×(0.5マス)</option>
             </select>
           </div>
           <div id="stairs-control" class="stairs-control-group" style="display: none;">
@@ -243,13 +251,57 @@
             <button id="stair-size-small" class="stair-size-btn" title="小 (0.5マス)">小</button>
             <button id="stair-size-medium" class="stair-size-btn active" title="中 (1マス・基本)">中</button>
             <button id="stair-size-large" class="stair-size-btn" title="大 (1.5マス)">大</button>
+            <span class="width-label" style="margin-left: 10px;">種類:</span>
+            <button id="stair-type-straight" class="stair-type-btn active" title="直線階段">直</button>
+            <button id="stair-type-l-shape" class="stair-type-btn" title="L字階段">L</button>
             <div id="stairs-preview" class="stairs-preview"></div>
           </div>
           <div id="line-control" class="line-control-group" style="display: none;">
             <span class="width-label">線:</span>
             <button id="line-style-toggle" class="line-style-btn solid" title="実線/点線/矢印切り替え">─</button>
           </div>
-          <input type="color" id="stroke-color" value="#000000" title="線の色" />
+          <div id="fill-control" class="fill-control-group" style="display: none;">
+            <span class="width-label">塗り:</span>
+            <button id="fill-size-quarter" class="fill-size-btn" title="0.25マス">0.25</button>
+            <button id="fill-size-half" class="fill-size-btn active" title="0.5マス">0.5</button>
+            <button id="fill-size-one" class="fill-size-btn" title="1マス">1</button>
+          </div>
+          <div class="color-selector-wrapper">
+            <button id="color-selector-btn" class="color-selector-btn" title="色を選択">
+              <span class="current-color" style="background: #000000;"></span>
+              <span class="dropdown-arrow">▼</span>
+            </button>
+            <div id="color-dropdown" class="color-dropdown">
+              <div class="color-grid">
+                <button class="color-btn" data-color="#ff0000" style="background: #ff0000;" title="赤"></button>
+                <button class="color-btn" data-color="#ff8800" style="background: #ff8800;" title="オレンジ"></button>
+                <button class="color-btn" data-color="#ffff00" style="background: #ffff00;" title="黄色"></button>
+                <button class="color-btn" data-color="#00ff00" style="background: #00ff00;" title="緑"></button>
+                <button class="color-btn" data-color="#00ffff" style="background: #00ffff;" title="水色"></button>
+                <button class="color-btn" data-color="#0080ff" style="background: #0080ff;" title="青"></button>
+                <button class="color-btn" data-color="#8000ff" style="background: #8000ff;" title="紫"></button>
+                <button class="color-btn" data-color="#ff00ff" style="background: #ff00ff;" title="ピンク"></button>
+                <button class="color-btn" data-color="#000000" style="background: #000000;" title="黒"></button>
+                <button class="color-btn" data-color="#888888" style="background: #888888;" title="グレー"></button>
+                <button class="color-btn" data-color="#ffffff" style="background: #ffffff; border: 2px solid #ccc;" title="白"></button>
+                <button class="color-btn" data-color="#8b4513" style="background: #8b4513;" title="茶色"></button>
+                <!-- 薄い色 -->
+                <button class="color-btn" data-color="rgba(255,0,0,0.3)" style="background: rgba(255,0,0,0.3);" title="薄い赤"></button>
+                <button class="color-btn" data-color="rgba(0,128,255,0.3)" style="background: rgba(0,128,255,0.3);" title="薄い青"></button>
+                <button class="color-btn" data-color="rgba(0,255,0,0.3)" style="background: rgba(0,255,0,0.3);" title="薄い緑"></button>
+                <button class="color-btn" data-color="rgba(255,255,0,0.3)" style="background: rgba(255,255,0,0.3);" title="薄い黄色"></button>
+              </div>
+              <div class="pattern-section">
+                <span class="pattern-label">パターン:</span>
+                <button id="pattern-diagonal" class="pattern-btn" title="斜線パターン">／</button>
+                <button id="pattern-solid" class="pattern-btn active" title="塗りつぶし">■</button>
+              </div>
+              <div class="custom-color-section">
+                <label for="stroke-color" class="custom-color-label">カスタム:</label>
+                <input type="color" id="stroke-color" value="#000000" class="color-picker-input" />
+              </div>
+            </div>
+          </div>
           <select id="font-size" title="フォントサイズ">
             <option value="16">16px</option>
             <option value="20">20px</option>

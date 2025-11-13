@@ -103,25 +103,27 @@ export default class StartScreen {
 
   hideStartScreen() {
     if (this.startScreen) {
-      this.startScreen.classList.add('hidden');
+      this.startScreen.style.display = 'none';
     }
     if (this.appElement) {
       this.appElement.style.display = 'flex';
     }
-    setTimeout(() => {
-      if (this.startScreen) {
-        this.startScreen.style.display = 'none';
-      }
-    }, 300);
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+      exportBtn.style.display = 'flex';
+    }
   }
 
   showStartScreen() {
     if (this.startScreen) {
       this.startScreen.style.display = 'flex';
-      this.startScreen.classList.remove('hidden');
     }
     if (this.appElement) {
       this.appElement.style.display = 'none';
+    }
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+      exportBtn.style.display = 'none';
     }
   }
 

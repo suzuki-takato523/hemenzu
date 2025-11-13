@@ -3,7 +3,8 @@ const PERFORMANCE_CONFIG = {
   DEBOUNCE_DELAY: 16, // 約60FPS
   REDRAW_DEBOUNCE: 8,  // 再描画のデバウンス時間
   MAX_PATH_POINTS: 1000, // パスの最大ポイント数
-  OPTIMIZATION_THRESHOLD: 50 // パス最適化を実行するしきい値（より頻繁に実行）
+  OPTIMIZATION_THRESHOLD: 50, // パス最適化を実行するしきい値（より頻繁に実行）
+  MAX_HISTORY_SIZE: 50 // アンドゥ/リドゥ履歴の最大数（メモリリーク防止）
 };
 
 const DRAWING_CONFIG = {
@@ -12,6 +13,28 @@ const DRAWING_CONFIG = {
   DEFAULT_STROKE_COLOR: '#000000',
   ERASER_MIN_SIZE: 5,
   ERASER_MAX_SIZE: 50
+};
+
+// デバッグモード（開発時のみtrue）
+const DEBUG_MODE = false; // 本番環境ではfalseに設定
+
+// デバッグログ用ヘルパー
+const debugLog = (...args) => {
+  if (DEBUG_MODE) {
+    console.log(...args);
+  }
+};
+
+const debugError = (...args) => {
+  if (DEBUG_MODE) {
+    console.error(...args);
+  }
+};
+
+const debugWarn = (...args) => {
+  if (DEBUG_MODE) {
+    console.warn(...args);
+  }
 };
 
 /**
@@ -84,10 +107,16 @@ export class DrawingCanvas {
     // 階段設定（gridSizeが設定された後に実行）
     this.stairSteps = 10; // 固定段数
     this.stairWidth = this.gridSize * 1; // 階段の横線長さ（デフォルト1マス = 160px）
+    this.stairType = 'straight'; // 階段の種類: 'straight'(直線), 'l-shape'(L字), 'spiral'(螺旋)
     console.log(`初期化: gridSize=${this.gridSize}px, 初期stairWidth=${this.stairWidth}px`);
+    
+    // 塗りつぶし設定
+    this.fillPattern = 'solid'; // 'solid' or 'diagonal'
+    this.fillSize = 'half'; // 'quarter' (0.25マス), 'half' (0.5マス), 'one' (1マス)
     
     this.startPoint = null;
     this.previewEndPoint = null; // プレビュー用の終点
+    this.firstMovePoint = null; // 最初に動いた方向を記録（L字階段用）
     this.showShapePreview = false; // 図形プレビュー表示フラグ
     this.eventListeners = {};
     this.snapToGrid = true;
@@ -119,7 +148,8 @@ export class DrawingCanvas {
     this.lastMultiTouchTime = 0; // 最後のマルチタッチ時刻（シンプル化）
     
     // ズーム関連
-    this.scale = 1;
+    // デバイスに応じた初期ズームレベルを設定
+    this.scale = this.getInitialScale();
     this.minScale = 0.1;
     this.maxScale = 5;
     this.translateX = 0;
@@ -129,8 +159,37 @@ export class DrawingCanvas {
     this.pinchCenter = { x: 0, y: 0 };
     this.lastPanPoint = null; // 二本指パン用
     
+    // スペースキー+ドラッグでのパン機能
+    this.isSpacePressed = false;
+    this.isPanning = false;
+    this.panStartPoint = null;
+    
     this.initCanvas();
     this.setupEventListeners();
+  }
+
+  // デバイスに応じた初期ズームレベルを取得
+  getInitialScale() {
+    // タッチデバイス（タブレット・スマホ）の判定
+    const isTouchDevice = (
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      navigator.msMaxTouchPoints > 0
+    );
+    
+    // 画面サイズも考慮（タブレットは通常768px以上）
+    const isTabletSize = window.innerWidth >= 768;
+    
+    if (isTouchDevice && isTabletSize) {
+      // タブレット: 近めの表示（描画しやすい）
+      return 0.7;
+    } else if (isTouchDevice) {
+      // スマホ: 中間
+      return 0.5;
+    } else {
+      // PC: 遠めの表示（全体が見やすい）
+      return 0.35;
+    }
   }
 
   initCanvas() {
@@ -190,12 +249,49 @@ export class DrawingCanvas {
   }
 
   setupEventListeners() {
+    // キーボードイベント（スペースキーでパンモード）
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !this.isSpacePressed) {
+        this.isSpacePressed = true;
+        if (!this.isDrawing && !this.isDraggingTextBox && !this.isResizing) {
+          this.canvas.style.cursor = 'grab';
+        }
+      }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        this.isSpacePressed = false;
+        this.isPanning = false;
+        this.panStartPoint = null;
+        this.canvas.style.cursor = 'default';
+      }
+    });
+    
     // マウスイベント
     this.canvas.addEventListener('mousedown', (e) => {
+      // スペースキーが押されている場合はパン操作
+      if (this.isSpacePressed) {
+        this.isPanning = true;
+        this.panStartPoint = { x: e.clientX, y: e.clientY };
+        this.canvas.style.cursor = 'grabbing';
+        return;
+      }
       // テキストボックスツール時もstartDrawingを呼ぶ（編集・移動・選択のため）
       this.startDrawing(e);
     });
     this.canvas.addEventListener('mousemove', (e) => {
+      // パン操作中
+      if (this.isPanning && this.panStartPoint) {
+        const dx = e.clientX - this.panStartPoint.x;
+        const dy = e.clientY - this.panStartPoint.y;
+        this.translateX += dx;
+        this.translateY += dy;
+        this.panStartPoint = { x: e.clientX, y: e.clientY };
+        this.redrawCanvas();
+        return;
+      }
+      
       // テキストボックスツール時もdrawを呼ぶ（移動処理のため）
       if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
         this.updateCursorForPosition(e);
@@ -214,6 +310,16 @@ export class DrawingCanvas {
       this.draw(e);
     });
     this.canvas.addEventListener('mouseup', (e) => {
+      // パン操作終了
+      if (this.isPanning) {
+        this.isPanning = false;
+        this.panStartPoint = null;
+        if (this.isSpacePressed) {
+          this.canvas.style.cursor = 'grab';
+        }
+        return;
+      }
+      
       if (this.currentTool === 'eraser' && this.isEraserPressed) {
         this.stopEraserOperation();
       }
@@ -243,8 +349,8 @@ export class DrawingCanvas {
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       
-      // ズーム倍率を計算
-      const zoomIntensity = 0.1;
+      // ズーム倍率を計算（より細かい制御）
+      const zoomIntensity = 0.05; // 0.1から0.05に変更してより滑らかに
       const delta = e.deltaY < 0 ? 1 : -1;
       const zoom = Math.exp(delta * zoomIntensity);
       
@@ -428,26 +534,14 @@ export class DrawingCanvas {
     x = (x - this.translateX) / this.scale;
     y = (y - this.translateY) / this.scale;
     
-    // グリッドスナップ機能（テキストツールと消しゴムツールは除外）
+    // グリッドスナップ機能（テキストツール、消しゴムツール、塗りつぶしツールは除外）
     if (this.snapToGrid) {
-      // グリッド連続直線ツールは0.5マス（80px）単位でスナップ
-      if (this.currentTool === 'polyline-grid') {
-        const halfGrid = this.gridSize / 2;
-        console.log('ポリライングリッド スナップ:', { 
-          gridSize: this.gridSize, 
-          halfGrid: halfGrid,
-          originalX: x,
-          originalY: y
-        });
-        x = Math.round(x / halfGrid) * halfGrid;
-        y = Math.round(y / halfGrid) * halfGrid;
-        console.log('スナップ後:', { x, y });
-      }
-      // ペンツール、テキストツール、消しゴムツール以外はグリッドにスナップ
-      else if (this.currentTool !== 'pen' && 
+      // ペンツール、テキストツール、消しゴムツール、塗りつぶしツール以外はグリッドにスナップ
+      if (this.currentTool !== 'pen' && 
           this.currentTool !== 'text-horizontal' && 
           this.currentTool !== 'text-vertical' &&
-          this.currentTool !== 'eraser') {
+          this.currentTool !== 'eraser' &&
+          this.currentTool !== 'fill') {
         
         // 扉ツールと階段ツールの場合は0.25マス（クォーターグリッド）にスナップ
         if (this.currentTool === 'door' || this.currentTool === 'stairs') {
@@ -455,14 +549,20 @@ export class DrawingCanvas {
           x = Math.round(x / quarterGrid) * quarterGrid;
           y = Math.round(y / quarterGrid) * quarterGrid;
         }
-        // 直線ツールで点線または矢印の場合は0.25マス（クォーターグリッド）にスナップ
-        else if (this.currentTool === 'line' && (this.lineStyle === 'dashed' || this.lineStyle === 'arrow')) {
+        // 直線ツール（全スタイル）は0.25マス（クォーターグリッド）にスナップ
+        else if (this.currentTool === 'line') {
           const quarterGrid = this.gridSize / 4;
           x = Math.round(x / quarterGrid) * quarterGrid;
           y = Math.round(y / quarterGrid) * quarterGrid;
         }
-        // 直線モード（実線のみ）と四角モードの場合は半マス（グリッドサイズの半分）にスナップ
-        else if ((this.currentTool === 'line' && this.lineStyle === 'solid') || this.currentTool === 'rectangle') {
+        // グリッド連続直線ツールは0.5マススナップ
+        else if (this.currentTool === 'polyline-grid') {
+          const halfGrid = this.gridSize / 2;
+          x = Math.round(x / halfGrid) * halfGrid;
+          y = Math.round(y / halfGrid) * halfGrid;
+        }
+        // 四角モードの場合は半マス（グリッドサイズの半分）にスナップ
+        else if (this.currentTool === 'rectangle') {
           const halfGrid = this.gridSize / 2;
           x = Math.round(x / halfGrid) * halfGrid;
           y = Math.round(y / halfGrid) * halfGrid;
@@ -577,10 +677,10 @@ export class DrawingCanvas {
       });
       this.setSelectedTextBox(clickedTextBox);
       
-      // ダブルクリックの場合は編集モードに（テキストボックス全体で判定）
+      // ダブルクリックの場合は編集ダイアログを表示
       if (this.lastClickTime && Date.now() - this.lastClickTime < 500) {
-        console.log('ダブルクリック検出、編集モード開始');
-        this.editTextBox(clickedTextBox);
+        console.log('ダブルクリック検出、編集ダイアログ表示');
+        this.showTextBoxEditDialog(clickedTextBox);
         this.lastClickTime = 0; // リセット
         return;
       }
@@ -631,10 +731,20 @@ export class DrawingCanvas {
     
     // 消しゴムツール以外の場合のみ描画状態を設定
     if (this.currentTool !== 'eraser') {
-      // 開口部の場合は特別処理（クリック一回で完了）
-      if (this.currentTool === 'door' && this.doorType === 'smallbox') {
-        this.drawSmallBoxInstantly(coords);
+      // 開口部・シンボルの場合は特別処理（クリック一回で完了）
+      if (this.currentTool === 'door' && 
+          (this.doorType === 'smallbox' || this.doorType === 'circle' || 
+           this.doorType === 'square' || this.doorType === 'cross')) {
+        this.drawSymbolInstantly(coords);
         return; // 描画状態には入らない
+      }
+      
+      // 塗りつぶしの場合は連続描画モードに入る
+      if (this.currentTool === 'fill') {
+        this.isDrawing = true;
+        this.fillPositions = []; // 塗りつぶし位置を記録
+        this.drawFillAt(coords);
+        return;
       }
       
       this.isDrawing = true;
@@ -674,7 +784,54 @@ export class DrawingCanvas {
     }
   }
 
-  // 開口部を即座に描画するメソッド
+  // シンボル（開口部・○・□・×）を即座に描画するメソッド
+  drawSymbolInstantly(coords) {
+    console.log('🔵 シンボル即座描画開始:', this.doorType, coords);
+    
+    let size, snappedX, snappedY;
+    
+    if (this.doorType === 'smallbox') {
+      // 開口部：0.25マス
+      size = this.gridSize / 4;
+      const quarterGrid = this.gridSize / 4;
+      const snappedCenterX = Math.round(coords.x / quarterGrid) * quarterGrid;
+      const snappedCenterY = Math.round(coords.y / quarterGrid) * quarterGrid;
+      snappedX = snappedCenterX - size / 2;
+      snappedY = snappedCenterY - size / 2;
+    } else {
+      // ○・□・×：0.5マス
+      size = this.gridSize / 2;
+      const halfGrid = this.gridSize / 2;
+      const snappedCenterX = Math.round(coords.x / halfGrid) * halfGrid;
+      const snappedCenterY = Math.round(coords.y / halfGrid) * halfGrid;
+      snappedX = snappedCenterX - size / 2;
+      snappedY = snappedCenterY - size / 2;
+    }
+    
+    // シンボルのパスデータを作成
+    const symbolData = {
+      tool: 'door',
+      doorType: this.doorType,
+      startPoint: { x: snappedX, y: snappedY },
+      endPoint: { x: snappedX + size, y: snappedY + size },
+      strokeColor: this.strokeColor,
+      strokeWidth: this.strokeWidth,
+      lineStyle: this.lineStyle
+    };
+    
+    // パス履歴に追加
+    this.allPaths.push(symbolData);
+    this.lastOperationType = 'path';
+    this.redoStack = [];
+    this.updateUndoRedoButtons();
+    
+    console.log('シンボルをパス履歴に追加:', symbolData);
+    
+    // キャンバスを再描画
+    this.redrawCanvas();
+  }
+
+  // 開口部を即座に描画するメソッド（後方互換性のため残す）
   drawSmallBoxInstantly(coords) {
     console.log('📦 開口部即座描画開始:', coords);
     
@@ -819,6 +976,9 @@ export class DrawingCanvas {
       
       this.ctx.lineTo(coords.x, coords.y);
       this.ctx.stroke();
+    } else if (this.currentTool === 'fill') {
+      // 塗りつぶしツールの場合、移動中も連続で塗りつぶす
+      this.drawFillAt(coords);
     } else {
       // 図形描画の場合、リアルタイムプレビュー
       // 直線ツールでShiftキーが押されている場合、水平・垂直線に制限
@@ -834,6 +994,23 @@ export class DrawingCanvas {
         } else {
           // 垂直線
           endPoint = { x: this.startPoint.x, y: coords.y };
+        }
+      }
+      
+      // L字階段用：最初の動きを記録（一定距離動いた時点で確定）
+      if (this.currentTool === 'stairs' && this.stairType === 'l-shape' && !this.firstMovePoint) {
+        const dx = Math.abs(coords.x - this.startPoint.x);
+        const dy = Math.abs(coords.y - this.startPoint.y);
+        const threshold = this.gridSize * 0.3; // 閾値：0.3マス分移動したら判定
+        
+        if (dx > threshold || dy > threshold) {
+          // 最初にどちらの方向に動いたかを記録
+          this.firstMovePoint = {
+            x: coords.x,
+            y: coords.y,
+            isHorizontalFirst: dx > dy // 水平方向に先に動いた場合true
+          };
+          console.log('L字階段：最初の動き検出', this.firstMovePoint.isHorizontalFirst ? '水平→' : '垂直→');
         }
       }
       
@@ -895,6 +1072,23 @@ export class DrawingCanvas {
     if (this.currentTool === 'text-horizontal' || this.currentTool === 'text-vertical') {
       // テキストボックスはボタンクリック時に作成済みのため、ここでは何もしない
       // this.createTextBox(this.startPoint, coords);
+    } else if (this.currentTool === 'fill') {
+      // 塗りつぶしツールの場合、記録した全ての位置を一つのパスとして保存
+      if (this.fillPositions && this.fillPositions.length > 0) {
+        const fillData = {
+          tool: 'fill',
+          positions: this.fillPositions, // 複数の塗りつぶし位置
+          fillSize: this.fillSize,
+          fillPattern: this.fillPattern, // パターン情報を保存
+          strokeColor: this.strokeColor
+        };
+        this.allPaths.push(fillData);
+        this.lastOperationType = 'path';
+        this.redoStack = [];
+        this.updateUndoRedoButtons();
+        this.fillPositions = [];
+        this.lastFillPos = null; // 次のストロークのためにリセット
+      }
     } else {
       // 直線、四角形、扉は太い線で保存
       const actualStrokeWidth = (this.currentTool === 'line' || this.currentTool === 'rectangle' || this.currentTool === 'door' || this.currentTool === 'polyline-grid') 
@@ -927,6 +1121,11 @@ export class DrawingCanvas {
       if (this.currentTool === 'stairs') {
         strokeData.stairSteps = this.stairSteps;
         strokeData.stairWidth = this.stairWidth;
+        strokeData.stairType = this.stairType; // 階段タイプも保存
+        // L字階段の場合は方向も保存
+        if (this.stairType === 'l-shape' && this.firstMovePoint) {
+          strokeData.isHorizontalFirst = this.firstMovePoint.isHorizontalFirst;
+        }
       }
       
       
@@ -967,6 +1166,7 @@ export class DrawingCanvas {
     // 図形プレビューをクリア（描画完了時）
     this.showShapePreview = false;
     this.previewEndPoint = null;
+    this.firstMovePoint = null; // L字階段用の最初の動きもリセット
     
     this.currentPath = [];
     
@@ -1015,6 +1215,10 @@ export class DrawingCanvas {
       case 'stairs':
         this.drawStairs(start, end);
         // 階段描画では各メソッド内でstroke()を実行済みのため、ここではreturnする
+        this.ctx.restore();
+        return;
+      case 'fill':
+        this.drawFill(coords);
         this.ctx.restore();
         return;
       // circleツールは廃止
@@ -1088,6 +1292,18 @@ export class DrawingCanvas {
       case 'smallbox':
         // 開口部（0.25マス×0.25マス）
         this.drawSmallBox(start, end);
+        break;
+      case 'circle':
+        // ○（丸）0.5マス×0.5マス
+        this.drawCircleSymbol(start, end);
+        break;
+      case 'square':
+        // □（四角）0.5マス×0.5マス
+        this.drawSquareSymbol(start, end);
+        break;
+      case 'cross':
+        // ×（バツ）0.5マス×0.5マス
+        this.drawCrossSymbol(start, end);
         break;
       // 後方互換性のため古い値もサポート
       case 'single-left':
@@ -1274,13 +1490,13 @@ export class DrawingCanvas {
     
     this.ctx.save();
     
-    // 開口部の描画（薄いグレーの塗りつぶし）
-    this.ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+    // 開口部の描画（透けた青色の塗りつぶし）
+    this.ctx.fillStyle = 'rgba(100, 150, 255, 0.3)'; // 透けた青色
     this.ctx.fillRect(boxX, boxY, boxSize, boxSize);
     
-    // 境界線
+    // 境界線（青色）
     this.ctx.lineWidth = 1;
-    this.ctx.strokeStyle = '#666666'; // 開口部は固定色（中間色のため変更なし）
+    this.ctx.strokeStyle = '#4080ff'; // 青色の枠線
     this.ctx.strokeRect(boxX, boxY, boxSize, boxSize);
     
     this.ctx.restore();
@@ -1288,9 +1504,271 @@ export class DrawingCanvas {
     console.log('📦 キャンバス用開口部描画完了:', { boxX, boxY, boxSize });
   }
 
+  // ○（丸）シンボル描画 - 0.5マス×0.5マス（塗りつぶし）
+  drawCircleSymbol(start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    const centerX = start.x + size / 2;
+    const centerY = start.y + size / 2;
+    const radius = size / 2;
+    
+    this.ctx.save();
+    this.ctx.fillStyle = this.getShapeColor();
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  // □（四角）シンボル描画 - 0.5マス×0.5マス（塗りつぶし）
+  drawSquareSymbol(start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    
+    this.ctx.save();
+    this.ctx.fillStyle = this.getShapeColor();
+    this.ctx.fillRect(start.x, start.y, size, size);
+    this.ctx.restore();
+  }
+
+  // ×（バツ）シンボル描画 - 0.5マス×0.5マス（太線）
+  drawCrossSymbol(start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    
+    this.ctx.save();
+    this.ctx.strokeStyle = this.getShapeColor();
+    this.ctx.lineWidth = 10; // さらに太くする
+    this.ctx.lineCap = 'round'; // 端を丸くする
+    
+    // 左上から右下への線
+    this.ctx.beginPath();
+    this.ctx.moveTo(start.x, start.y);
+    this.ctx.lineTo(start.x + size, start.y + size);
+    this.ctx.stroke();
+    
+    // 右上から左下への線
+    this.ctx.beginPath();
+    this.ctx.moveTo(start.x + size, start.y);
+    this.ctx.lineTo(start.x, start.y + size);
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
   drawStairs(start, end) {
+    // 階段タイプに応じて描画を分岐
+    switch (this.stairType) {
+      case 'l-shape':
+        this.drawLShapeStairs(start, end);
+        break;
+      case 'spiral':
+        this.drawSpiralStairs(start, end);
+        break;
+      default: // 'straight'
+        this.drawStraightStairs(start, end);
+    }
+  }
+
+  // 塗りつぶし描画（プレビュー用）
+  drawFill(coords) {
+    let size;
+    switch (this.fillSize) {
+      case 'quarter':
+        size = this.gridSize / 4; // 0.25マス = 40px
+        break;
+      case 'half':
+        size = this.gridSize / 2; // 0.5マス = 80px
+        break;
+      case 'one':
+        size = this.gridSize; // 1マス = 160px
+        break;
+      default:
+        size = this.gridSize / 2;
+    }
+    
+    // カーソル位置を含むマスにスナップ（選択したサイズ単位でスナップ）
+    const snappedX = Math.floor(coords.x / size) * size;
+    const snappedY = Math.floor(coords.y / size) * size;
+    
+    // パターンに応じて描画
+    this.ctx.save();
+    if (this.fillPattern === 'diagonal') {
+      // 斜線パターン
+      this.drawDiagonalPattern(snappedX, snappedY, size);
+    } else {
+      // 塗りつぶし
+      this.ctx.fillStyle = this.strokeColor;
+      this.ctx.fillRect(snappedX, snappedY, size, size);
+    }
+    this.ctx.restore();
+  }
+
+  // 斜線パターン描画
+  drawDiagonalPattern(x, y, size) {
+    this.ctx.save();
+    
+    // 現在の変換行列を取得
+    const transform = this.ctx.getTransform();
+    
+    // ワールド座標をスクリーン座標に変換
+    const screenX = x * transform.a + transform.e;
+    const screenY = y * transform.d + transform.f;
+    const screenSize = size * transform.a; // zoom倍率を適用
+    
+    // 変換をリセットして物理座標で描画
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    this.ctx.strokeStyle = this.strokeColor;
+    this.ctx.lineWidth = 2;
+    
+    const spacing = 16; // 斜線の間隔（物理ピクセル）
+    
+    // 背景に薄い色を塗る
+    this.ctx.fillStyle = this.strokeColor + '20'; // 透明度12.5%
+    this.ctx.fillRect(screenX, screenY, screenSize, screenSize);
+    
+    // クリッピング領域を設定（正方形内だけに描画）
+    this.ctx.beginPath();
+    this.ctx.rect(screenX, screenY, screenSize, screenSize);
+    this.ctx.clip();
+    
+    // 左上から右下への斜線を描画
+    this.ctx.beginPath();
+    for (let offset = -screenSize; offset < screenSize * 2; offset += spacing) {
+      this.ctx.moveTo(screenX + offset, screenY);
+      this.ctx.lineTo(screenX + offset + screenSize, screenY + screenSize);
+    }
+    this.ctx.stroke();
+    
+    // クリッピングを解除
+    this.ctx.restore();
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    // 枠線を描画（クリッピング後に描画）
+    this.ctx.strokeStyle = this.strokeColor;
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(screenX, screenY, screenSize, screenSize);
+    
+    // 変換を元に戻す
+    this.ctx.setTransform(transform);
+    this.ctx.restore();
+  }
+
+  // 連続塗りつぶし用：位置を記録しながら描画
+  drawFillAt(coords) {
+    let size;
+    switch (this.fillSize) {
+      case 'quarter':
+        size = this.gridSize / 4;
+        break;
+      case 'half':
+        size = this.gridSize / 2;
+        break;
+      case 'one':
+        size = this.gridSize;
+        break;
+      default:
+        size = this.gridSize / 2;
+    }
+    
+    // カーソル位置を含むマスにスナップ（選択したサイズ単位でスナップ）
+    const snappedX = Math.floor(coords.x / size) * size;
+    const snappedY = Math.floor(coords.y / size) * size;
+    
+    // 同じ位置に既に描画済みかチェック
+    if (!this.fillPositions) {
+      this.fillPositions = [];
+      this.lastFillPos = null;
+    }
+    
+    const posKey = `${snappedX},${snappedY}`;
+    if (this.fillPositions.some(pos => `${pos.x},${pos.y}` === posKey)) {
+      return; // 既に描画済み
+    }
+    
+    // 前回の位置から現在の位置までの間を埋める
+    if (this.lastFillPos) {
+      const dx = snappedX - this.lastFillPos.x;
+      const dy = snappedY - this.lastFillPos.y;
+      const steps = Math.max(Math.abs(dx / size), Math.abs(dy / size));
+      
+      for (let i = 1; i <= steps; i++) { // i=1から開始（前回位置は既に描画済み）
+        const t = steps > 0 ? i / steps : 0;
+        const interpX = this.lastFillPos.x + Math.round(dx * t / size) * size;
+        const interpY = this.lastFillPos.y + Math.round(dy * t / size) * size;
+        const interpKey = `${interpX},${interpY}`;
+        
+        if (!this.fillPositions.some(pos => `${pos.x},${pos.y}` === interpKey)) {
+          this.fillPositions.push({ x: interpX, y: interpY, size: size, pattern: this.fillPattern });
+          
+          // 変換行列を適用して描画
+          this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
+          if (this.fillPattern === 'diagonal') {
+            this.drawDiagonalPattern(interpX, interpY, size);
+          } else {
+            this.ctx.fillStyle = this.strokeColor;
+            this.ctx.fillRect(interpX, interpY, size, size);
+          }
+        }
+      }
+    } else {
+      // 最初の位置
+      this.fillPositions.push({ x: snappedX, y: snappedY, size: size, pattern: this.fillPattern });
+      this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
+      if (this.fillPattern === 'diagonal') {
+        this.drawDiagonalPattern(snappedX, snappedY, size);
+      } else {
+        this.ctx.fillStyle = this.strokeColor;
+        this.ctx.fillRect(snappedX, snappedY, size, size);
+      }
+    }
+    
+    this.lastFillPos = { x: snappedX, y: snappedY };
+  }
+
+  // 塗りつぶしを即座に実行してパスに追加（旧実装・削除予定）
+  drawFillInstantly(coords) {
+    console.log('Fill tool clicked at:', coords, 'fillSize:', this.fillSize, 'color:', this.strokeColor);
+    let size;
+    switch (this.fillSize) {
+      case 'quarter':
+        size = this.gridSize / 4;
+        break;
+      case 'half':
+        size = this.gridSize / 2;
+        break;
+      case 'one':
+        size = this.gridSize;
+        break;
+      default:
+        size = this.gridSize / 2;
+    }
+    
+    // グリッドにスナップ
+    const snappedX = Math.round(coords.x / (this.gridSize / 4)) * (this.gridSize / 4);
+    const snappedY = Math.round(coords.y / (this.gridSize / 4)) * (this.gridSize / 4);
+    
+    // パスデータを作成
+    const fillData = {
+      tool: 'fill',
+      startPoint: { x: snappedX, y: snappedY },
+      size: size,
+      fillSize: this.fillSize,
+      strokeColor: this.strokeColor
+    };
+    
+    // パス履歴に追加
+    this.allPaths.push(fillData);
+    this.lastOperationType = 'path';
+    this.redoStack = [];
+    
+    // 再描画
+    this.redrawCanvas();
+  }
+
+  // 直線階段の描画
+  drawStraightStairs(start, end) {
     // 階段記号を描画：矢印に横線（段鼻線）が複数本
-    console.log(`階段描画開始: start(${start.x}, ${start.y}), end(${end.x}, ${end.y}), stairWidth: ${this.stairWidth}px`);
+    console.log(`直線階段描画開始: start(${start.x}, ${start.y}), end(${end.x}, ${end.y}), stairWidth: ${this.stairWidth}px`);
     
     this.ctx.save();
     this.ctx.lineWidth = 2;
@@ -1388,6 +1866,284 @@ export class DrawingCanvas {
     this.ctx.restore();
   }
 
+  // L字階段の描画
+  drawLShapeStairs(start, end) {
+    console.log(`L字階段描画開始: start(${start.x}, ${start.y}), end(${end.x}, ${end.y})`);
+    
+    this.ctx.save();
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = this.getShapeColor();
+    
+    // 方向を判定してL字の折り返し点を決定（一筆書き風）
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    
+    let corner;
+    let isHorizontalFirst;
+    
+    // 最初にドラッグした方向を使用（記録されている場合）
+    if (this.firstMovePoint && this.firstMovePoint.isHorizontalFirst !== undefined) {
+      isHorizontalFirst = this.firstMovePoint.isHorizontalFirst;
+      console.log('L字階段: ドラッグ開始時の動きを使用 ->', isHorizontalFirst ? '水平→垂直' : '垂直→水平');
+    } else {
+      // フォールバック：終点位置から判定
+      const minLength = this.stairWidth * 0.8;
+      
+      const isPatternAValid = absDx >= minLength && absDy >= minLength;
+      const isPatternBValid = absDy >= minLength && absDx >= minLength;
+      
+      if (isPatternAValid && isPatternBValid) {
+        // 両方有効な場合は長い方向を優先
+        isHorizontalFirst = absDx >= absDy;
+      } else if (isPatternAValid) {
+        isHorizontalFirst = true;
+      } else if (isPatternBValid) {
+        isHorizontalFirst = false;
+      } else {
+        isHorizontalFirst = absDx >= absDy;
+      }
+      console.log('L字階段: 終点から判定 ->', isHorizontalFirst ? '水平→垂直' : '垂直→水平');
+    }
+    
+    corner = isHorizontalFirst ? { x: end.x, y: start.y } : { x: start.x, y: end.y };
+    
+    console.log(`L字階段描画: 横:${absDx.toFixed(0)}px 縦:${absDy.toFixed(0)}px, パターン:${isHorizontalFirst ? '水平→垂直' : '垂直→水平'}`);
+    
+    // 第一セグメント
+    this.ctx.beginPath();
+    this.ctx.moveTo(start.x, start.y);
+    this.ctx.lineTo(corner.x, corner.y);
+    this.ctx.stroke();
+    
+    // 第二セグメント
+    this.ctx.beginPath();
+    this.ctx.moveTo(corner.x, corner.y);
+    this.ctx.lineTo(end.x, end.y);
+    this.ctx.stroke();
+    
+    // 終点の矢印
+    const arrowLength = 20;
+    let angle;
+    if (isHorizontalFirst) {
+      // 垂直方向の矢印
+      angle = Math.atan2(end.y - corner.y, 0);
+    } else {
+      // 水平方向の矢印
+      angle = Math.atan2(0, end.x - corner.x);
+    }
+    const arrowAngle = Math.PI / 6;
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(end.x, end.y);
+    this.ctx.lineTo(
+      end.x - arrowLength * Math.cos(angle - arrowAngle),
+      end.y - arrowLength * Math.sin(angle - arrowAngle)
+    );
+    this.ctx.moveTo(end.x, end.y);
+    this.ctx.lineTo(
+      end.x - arrowLength * Math.cos(angle + arrowAngle),
+      end.y - arrowLength * Math.sin(angle + arrowAngle)
+    );
+    this.ctx.stroke();
+    
+    // 折り返し点に斜めの線を描画（踊り場を表現）
+    const stairWidth = this.stairWidth;
+    const halfWidth = stairWidth / 2;
+    const diagonalLength = halfWidth * 1.4; // 対角線の長さ（√2倍程度）
+    
+    // ドラッグの方向（正負）を考慮して斜め線の向きを決定
+    const signX = dx >= 0 ? 1 : -1; // 右方向なら1、左方向なら-1
+    const signY = dy >= 0 ? 1 : -1; // 下方向なら1、上方向なら-1
+    
+    if (isHorizontalFirst) {
+      // 水平→垂直の場合：第一セグメントに対して垂直な斜め線
+      // 右に進んで下に曲がる → 左上から右下への斜め線
+      this.ctx.beginPath();
+      this.ctx.moveTo(corner.x - signX * diagonalLength * 0.7, corner.y + signY * diagonalLength * 0.7);
+      this.ctx.lineTo(corner.x + signX * diagonalLength * 0.7, corner.y - signY * diagonalLength * 0.7);
+      this.ctx.stroke();
+    } else {
+      // 垂直→水平の場合：第一セグメントに対して垂直な斜め線
+      // 下に進んで右に曲がる → 左上から右下への斜め線
+      this.ctx.beginPath();
+      this.ctx.moveTo(corner.x + signX * diagonalLength * 0.7, corner.y - signY * diagonalLength * 0.7);
+      this.ctx.lineTo(corner.x - signX * diagonalLength * 0.7, corner.y + signY * diagonalLength * 0.7);
+      this.ctx.stroke();
+    }
+    
+    // 段鼻線を各セグメントに描画（折り返し点付近は除外）
+    const stepsPerSegment = Math.floor(this.stairSteps / 2);
+    const cornerMargin = stairWidth * 0.6; // 折り返し点付近の除外範囲
+    
+    // 第一セグメントの段鼻線
+    if (isHorizontalFirst) {
+      // 水平セグメント：垂直な段鼻線
+      const length1 = Math.abs(corner.x - start.x);
+      if (length1 > 0) {
+        for (let i = 1; i <= stepsPerSegment; i++) {
+          const t = i / (stepsPerSegment + 1);
+          const x = start.x + (corner.x - start.x) * t;
+          const y = start.y;
+          
+          // 折り返し点から一定距離内は描画しない
+          const distanceToCorner = Math.abs(x - corner.x);
+          if (distanceToCorner > cornerMargin) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y - halfWidth);
+            this.ctx.lineTo(x, y + halfWidth);
+            this.ctx.stroke();
+          }
+        }
+      }
+      
+      // 第二セグメント：水平な段鼻線
+      const length2 = Math.abs(end.y - corner.y);
+      if (length2 > 0) {
+        for (let i = 1; i <= stepsPerSegment; i++) {
+          const t = i / (stepsPerSegment + 1);
+          const x = corner.x;
+          const y = corner.y + (end.y - corner.y) * t;
+          
+          // 折り返し点から一定距離内は描画しない
+          const distanceToCorner = Math.abs(y - corner.y);
+          if (distanceToCorner > cornerMargin) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x - halfWidth, y);
+            this.ctx.lineTo(x + halfWidth, y);
+            this.ctx.stroke();
+          }
+        }
+      }
+    } else {
+      // 垂直セグメント：水平な段鼻線
+      const length1 = Math.abs(corner.y - start.y);
+      if (length1 > 0) {
+        for (let i = 1; i <= stepsPerSegment; i++) {
+          const t = i / (stepsPerSegment + 1);
+          const x = start.x;
+          const y = start.y + (corner.y - start.y) * t;
+          
+          // 折り返し点から一定距離内は描画しない
+          const distanceToCorner = Math.abs(y - corner.y);
+          if (distanceToCorner > cornerMargin) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x - halfWidth, y);
+            this.ctx.lineTo(x + halfWidth, y);
+            this.ctx.stroke();
+          }
+        }
+      }
+      
+      // 第二セグメント：垂直な段鼻線
+      const length2 = Math.abs(end.x - corner.x);
+      if (length2 > 0) {
+        for (let i = 1; i <= stepsPerSegment; i++) {
+          const t = i / (stepsPerSegment + 1);
+          const x = corner.x + (end.x - corner.x) * t;
+          const y = corner.y;
+          
+          // 折り返し点から一定距離内は描画しない
+          const distanceToCorner = Math.abs(x - corner.x);
+          if (distanceToCorner > cornerMargin) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y - halfWidth);
+            this.ctx.lineTo(x, y + halfWidth);
+            this.ctx.stroke();
+          }
+        }
+      }
+    }
+    
+    // 起点マーカー
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.strokeStyle = this.strokeColor;
+    this.ctx.beginPath();
+    this.ctx.arc(start.x, start.y, 4, 0, 2 * Math.PI);
+    this.ctx.fill();
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
+  // 螺旋階段の描画
+  drawSpiralStairs(start, end) {
+    console.log(`螺旋階段描画開始: start(${start.x}, ${start.y}), end(${end.x}, ${end.y})`);
+    
+    this.ctx.save();
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = this.getShapeColor();
+    
+    // 螺旋の中心と半径を計算
+    const centerX = (start.x + end.x) / 2;
+    const centerY = (start.y + end.y) / 2;
+    const radius = Math.min(
+      Math.abs(end.x - start.x) / 2,
+      Math.abs(end.y - start.y) / 2,
+      this.stairWidth
+    );
+    
+    // 螺旋を描画（円形）
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    this.ctx.stroke();
+    
+    // 中心に小さな円（柱）
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius * 0.3, 0, 2 * Math.PI);
+    this.ctx.stroke();
+    
+    // 放射状の段鼻線
+    const angleStep = (2 * Math.PI) / this.stairSteps;
+    const startAngle = Math.atan2(start.y - centerY, start.x - centerX);
+    
+    for (let i = 0; i < this.stairSteps; i++) {
+      const angle = startAngle + angleStep * i;
+      const innerRadius = radius * 0.3;
+      const outerRadius = radius;
+      
+      const x1 = centerX + Math.cos(angle) * innerRadius;
+      const y1 = centerY + Math.sin(angle) * innerRadius;
+      const x2 = centerX + Math.cos(angle) * outerRadius;
+      const y2 = centerY + Math.sin(angle) * outerRadius;
+      
+      this.ctx.beginPath();
+      this.ctx.moveTo(x1, y1);
+      this.ctx.lineTo(x2, y2);
+      this.ctx.stroke();
+    }
+    
+    // 矢印で回転方向を示す
+    const arrowAngle = startAngle + Math.PI / 4;
+    const arrowX = centerX + Math.cos(arrowAngle) * radius;
+    const arrowY = centerY + Math.sin(arrowAngle) * radius;
+    const arrowLength = 15;
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(arrowX, arrowY);
+    this.ctx.lineTo(
+      arrowX - arrowLength * Math.cos(arrowAngle - Math.PI / 6),
+      arrowY - arrowLength * Math.sin(arrowAngle - Math.PI / 6)
+    );
+    this.ctx.moveTo(arrowX, arrowY);
+    this.ctx.lineTo(
+      arrowX - arrowLength * Math.cos(arrowAngle + Math.PI / 6),
+      arrowY - arrowLength * Math.sin(arrowAngle + Math.PI / 6)
+    );
+    this.ctx.stroke();
+    
+    // 起点マーカー
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.strokeStyle = this.strokeColor;
+    this.ctx.beginPath();
+    this.ctx.arc(start.x, start.y, 4, 0, 2 * Math.PI);
+    this.ctx.fill();
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
   redrawCanvas() {
     // 既に再描画が要求されている場合は重複呼び出しを避ける
     if (this.redrawRequested) return;
@@ -1477,6 +2233,71 @@ export class DrawingCanvas {
         // テキストボックスの描画
         console.log('テキストボックスを描画:', pathData);
         this.drawTextBox(pathData);
+      } else if (pathData.tool === 'fill') {
+        // 塗りつぶしの描画
+        const pattern = pathData.fillPattern || 'solid';
+        if (pathData.positions) {
+          // 新形式：複数位置
+          pathData.positions.forEach(pos => {
+            const posPattern = pos.pattern || pattern;
+            if (posPattern === 'diagonal') {
+              this.ctx.save();
+              
+              // 現在の変換行列を取得
+              const transform = this.ctx.getTransform();
+              
+              // ワールド座標をスクリーン座標に変換
+              const screenX = pos.x * transform.a + transform.e;
+              const screenY = pos.y * transform.d + transform.f;
+              const screenSize = pos.size * transform.a;
+              
+              // 変換をリセットして物理座標で描画
+              this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+              
+              this.ctx.strokeStyle = pathData.strokeColor;
+              this.ctx.lineWidth = 2;
+              const spacing = 16;
+              
+              // 背景に薄い色を塗る
+              this.ctx.fillStyle = pathData.strokeColor + '20'; // 透明度12.5%
+              this.ctx.fillRect(screenX, screenY, screenSize, screenSize);
+              
+              // クリッピング領域を設定（正方形内だけに描画）
+              this.ctx.beginPath();
+              this.ctx.rect(screenX, screenY, screenSize, screenSize);
+              this.ctx.clip();
+              
+              // 斜線を描画
+              this.ctx.beginPath();
+              for (let offset = -screenSize; offset < screenSize * 2; offset += spacing) {
+                this.ctx.moveTo(screenX + offset, screenY);
+                this.ctx.lineTo(screenX + offset + screenSize, screenY + screenSize);
+              }
+              this.ctx.stroke();
+              
+              // クリッピングを解除
+              this.ctx.restore();
+              this.ctx.save();
+              this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+              
+              // 枠線を描画（クリッピング後に描画）
+              this.ctx.strokeStyle = pathData.strokeColor;
+              this.ctx.lineWidth = 2;
+              this.ctx.strokeRect(screenX, screenY, screenSize, screenSize);
+              
+              // 変換を元に戻す
+              this.ctx.setTransform(transform);
+              this.ctx.restore();
+            } else {
+              this.ctx.fillStyle = pathData.strokeColor;
+              this.ctx.fillRect(pos.x, pos.y, pos.size, pos.size);
+            }
+          });
+        } else if (pathData.startPoint) {
+          // 旧形式：単一位置（後方互換性）
+          this.ctx.fillStyle = pathData.strokeColor;
+          this.ctx.fillRect(pathData.startPoint.x, pathData.startPoint.y, pathData.size, pathData.size);
+        }
       } else {
         // 図形の描画
         console.log(`図形: ${pathData.tool} (${pathData.startPoint.x},${pathData.startPoint.y}) → (${pathData.endPoint.x},${pathData.endPoint.y})`);
@@ -1526,11 +2347,28 @@ export class DrawingCanvas {
             // 階段の描画時は階段設定も復元
             const savedStairSteps = this.stairSteps;
             const savedStairWidth = this.stairWidth;
+            const savedStairType = this.stairType;
+            const savedFirstMovePoint = this.firstMovePoint;
+            
             this.stairSteps = pathData.stairSteps || 10;
             this.stairWidth = pathData.stairWidth || this.gridSize * 1; // デフォルト1マス
+            this.stairType = pathData.stairType || 'straight'; // 階段タイプ復元
+            
+            // L字階段の場合は方向情報も復元
+            if (this.stairType === 'l-shape' && pathData.isHorizontalFirst !== undefined) {
+              this.firstMovePoint = {
+                isHorizontalFirst: pathData.isHorizontalFirst
+              };
+            }
+            
             this.drawStairs(pathData.startPoint, pathData.endPoint);
+            
+            // 設定を戻す
             this.stairSteps = savedStairSteps;
             this.stairWidth = savedStairWidth;
+            this.stairType = savedStairType;
+            this.firstMovePoint = savedFirstMovePoint;
+            
             // 階段描画では各メソッド内でstroke()済みのため、stroke()をスキップ
             this.ctx.restore();
             return; // forEachのコールバック内なのでreturnでスキップ
@@ -1932,7 +2770,7 @@ export class DrawingCanvas {
       this.textInput.style.height = `${minH}px`;
     } else {
       // 横書きの場合
-      const minW = Math.max(80, screenWidth - padding * 2, adjustedFontSize * 5);
+      const minW = Math.max(80, screenWidth - padding * 2, adjustedFontSize * 10);
       const minH = Math.max(40, screenHeight / dpr - padding * 2, adjustedFontSize * 2);
       this.textInput.style.width = `${minW}px`;
       this.textInput.style.height = `${minH}px`;
@@ -3127,6 +3965,438 @@ export class DrawingCanvas {
     }
   }
 
+  // テキストボックス編集ダイアログを表示
+  showTextBoxEditDialog(textBoxData) {
+    console.log('テキストボックス編集ダイアログを表示:', textBoxData);
+    
+    // 既存のダイアログがあれば削除
+    const existingDialog = document.querySelector('.textbox-edit-dialog');
+    if (existingDialog) {
+      existingDialog.remove();
+    }
+    
+    // ダイアログを作成
+    const dialog = document.createElement('div');
+    dialog.className = 'textbox-edit-dialog';
+    dialog.innerHTML = `
+      <div class="textbox-edit-backdrop">
+        <div class="textbox-edit-content">
+          <div class="textbox-edit-header">
+            <h3>テキストボックス編集</h3>
+          </div>
+          <div class="textbox-edit-body">
+            <div class="edit-field">
+              <label>テキスト内容</label>
+              <textarea id="edit-text-content" rows="4">${textBoxData.text || ''}</textarea>
+            </div>
+            <div class="edit-field">
+              <label>色</label>
+              <div class="color-preset-buttons">
+                <button class="preset-color-btn" data-color="#000000" style="background-color: #000000;" title="黒"></button>
+                <button class="preset-color-btn" data-color="#FF0000" style="background-color: #FF0000;" title="赤"></button>
+                <button class="preset-color-btn" data-color="#0080FF" style="background-color: #0080FF;" title="青"></button>
+                <button class="preset-color-btn" data-color="#00FF00" style="background-color: #00FF00;" title="緑"></button>
+                <button class="preset-color-btn" data-color="#FFFF00" style="background-color: #FFFF00;" title="黄"></button>
+                <button class="preset-color-btn" data-color="#FF00FF" style="background-color: #FF00FF;" title="マゼンタ"></button>
+                <button class="preset-color-btn" data-color="#00FFFF" style="background-color: #00FFFF;" title="シアン"></button>
+                <button class="preset-color-btn" data-color="#FFA500" style="background-color: #FFA500;" title="オレンジ"></button>
+                <button class="preset-color-btn" data-color="#808080" style="background-color: #808080;" title="グレー"></button>
+                <button class="preset-color-btn" data-color="#FFFFFF" style="background-color: #FFFFFF; border: 2px solid #999;" title="白"></button>
+              </div>
+              <div class="color-picker-wrapper">
+                <input type="color" id="edit-text-color" value="${textBoxData.strokeColor || '#000000'}">
+                <span class="color-preview" style="background-color: ${textBoxData.strokeColor || '#000000'}"></span>
+                <span class="color-label">カスタム色</span>
+              </div>
+            </div>
+            <div class="edit-field">
+              <label>フォントサイズ</label>
+              <select id="edit-font-size">
+                <option value="24" ${textBoxData.fontSize === 24 ? 'selected' : ''}>小 (24px)</option>
+                <option value="36" ${textBoxData.fontSize === 36 ? 'selected' : ''}>中 (36px)</option>
+                <option value="48" ${textBoxData.fontSize === 48 ? 'selected' : ''}>大 (48px)</option>
+                <option value="64" ${textBoxData.fontSize === 64 ? 'selected' : ''}>特大 (64px)</option>
+                <option value="96" ${textBoxData.fontSize === 96 ? 'selected' : ''}>巨大 (96px)</option>
+              </select>
+            </div>
+            <div class="edit-field">
+              <label>向き</label>
+              <div class="orientation-buttons">
+                <button id="edit-orientation-horizontal" class="orientation-btn ${!textBoxData.isVertical ? 'active' : ''}">横書き</button>
+                <button id="edit-orientation-vertical" class="orientation-btn ${textBoxData.isVertical ? 'active' : ''}">縦書き</button>
+              </div>
+            </div>
+          </div>
+          <div class="textbox-edit-actions">
+            <button class="edit-btn-cancel">キャンセル</button>
+            <button class="edit-btn-ok">OK</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // スタイルを追加
+    if (!document.querySelector('#textbox-edit-dialog-style')) {
+      const style = document.createElement('style');
+      style.id = 'textbox-edit-dialog-style';
+      style.textContent = `
+        .textbox-edit-dialog {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 10000;
+        }
+        .textbox-edit-backdrop {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .textbox-edit-content {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          min-width: 400px;
+          max-width: 90%;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+        body.dark-mode .textbox-edit-content {
+          background: #2d2d2d;
+          color: #e0e0e0;
+        }
+        .textbox-edit-header h3 {
+          margin: 0 0 20px 0;
+          font-size: 20px;
+          font-weight: 600;
+        }
+        .textbox-edit-body {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .edit-field {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .edit-field label {
+          font-weight: 500;
+          font-size: 14px;
+        }
+        .edit-field textarea {
+          width: 100%;
+          padding: 8px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        body.dark-mode .edit-field textarea {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        .color-preset-buttons {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 12px;
+          padding: 8px;
+          background: #f5f5f5;
+          border-radius: 8px;
+        }
+        body.dark-mode .color-preset-buttons {
+          background: #3d3d3d;
+        }
+        .preset-color-btn {
+          width: 40px;
+          height: 40px;
+          border: 2px solid #ddd;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          position: relative;
+        }
+        body.dark-mode .preset-color-btn {
+          border-color: #555;
+        }
+        .preset-color-btn:hover {
+          transform: scale(1.1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        .preset-color-btn.selected {
+          border-color: #007AFF;
+          box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
+        }
+        .color-picker-wrapper {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          padding-top: 8px;
+          border-top: 1px solid #e0e0e0;
+        }
+        body.dark-mode .color-picker-wrapper {
+          border-top-color: #555;
+        }
+        .color-picker-wrapper input[type="color"] {
+          width: 50px;
+          height: 36px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+        }
+        .color-preview {
+          width: 36px;
+          height: 36px;
+          border-radius: 6px;
+          border: 1px solid #ccc;
+        }
+        .color-label {
+          font-size: 12px;
+          color: #666;
+        }
+        body.dark-mode .color-label {
+          color: #aaa;
+        }
+        .edit-field select {
+          padding: 8px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          font-size: 14px;
+          background: white;
+          cursor: pointer;
+        }
+        body.dark-mode .edit-field select {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        .orientation-buttons {
+          display: flex;
+          gap: 8px;
+        }
+        .orientation-btn {
+          flex: 1;
+          padding: 8px 16px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          background: white;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+        .orientation-btn.active {
+          background: #007AFF;
+          color: white;
+          border-color: #007AFF;
+        }
+        body.dark-mode .orientation-btn {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        body.dark-mode .orientation-btn.active {
+          background: #0066CC;
+          border-color: #0066CC;
+        }
+        .textbox-edit-actions {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          margin-top: 20px;
+        }
+        .textbox-edit-actions button {
+          padding: 10px 24px;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .edit-btn-cancel {
+          background: #f0f0f0;
+          color: #333;
+        }
+        .edit-btn-cancel:hover {
+          background: #e0e0e0;
+        }
+        body.dark-mode .edit-btn-cancel {
+          background: #3d3d3d;
+          color: #e0e0e0;
+        }
+        body.dark-mode .edit-btn-cancel:hover {
+          background: #4d4d4d;
+        }
+        .edit-btn-ok {
+          background: #007AFF;
+          color: white;
+        }
+        .edit-btn-ok:hover {
+          background: #0066CC;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(dialog);
+    
+    // イベントリスナーを追加
+    const textInput = dialog.querySelector('#edit-text-content');
+    const colorInput = dialog.querySelector('#edit-text-color');
+    const colorPreview = dialog.querySelector('.color-preview');
+    const fontSizeSelect = dialog.querySelector('#edit-font-size');
+    const horizontalBtn = dialog.querySelector('#edit-orientation-horizontal');
+    const verticalBtn = dialog.querySelector('#edit-orientation-vertical');
+    const cancelBtn = dialog.querySelector('.edit-btn-cancel');
+    const okBtn = dialog.querySelector('.edit-btn-ok');
+    const backdrop = dialog.querySelector('.textbox-edit-backdrop');
+    const presetColorButtons = dialog.querySelectorAll('.preset-color-btn');
+    
+    let isVertical = textBoxData.isVertical;
+    let selectedColor = textBoxData.strokeColor || '#000000';
+    
+    // 初期選択状態を設定
+    presetColorButtons.forEach(btn => {
+      if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
+        btn.classList.add('selected');
+      }
+    });
+    
+    // プリセットカラーボタンのイベント
+    presetColorButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedColor = btn.dataset.color;
+        colorInput.value = selectedColor;
+        colorPreview.style.backgroundColor = selectedColor;
+        
+        // 選択状態を更新
+        presetColorButtons.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
+    
+    // カラーピッカー変更時
+    colorInput.addEventListener('input', () => {
+      selectedColor = colorInput.value;
+      colorPreview.style.backgroundColor = selectedColor;
+      
+      // プリセットボタンの選択状態をクリア
+      presetColorButtons.forEach(btn => {
+        if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
+          btn.classList.add('selected');
+        } else {
+          btn.classList.remove('selected');
+        }
+      });
+    });
+    
+    // 向きボタンのイベント
+    horizontalBtn.addEventListener('click', () => {
+      isVertical = false;
+      horizontalBtn.classList.add('active');
+      verticalBtn.classList.remove('active');
+    });
+    
+    verticalBtn.addEventListener('click', () => {
+      isVertical = true;
+      verticalBtn.classList.add('active');
+      horizontalBtn.classList.remove('active');
+    });
+    
+    // ESCキーで閉じる
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        cleanup();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    
+    const cleanup = () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      dialog.remove();
+    };
+    
+    cancelBtn.addEventListener('click', () => {
+      cleanup();
+    });
+    
+    okBtn.addEventListener('click', () => {
+      console.log('OK button clicked');
+      // 変更を適用
+      textBoxData.text = textInput.value.trim();
+      textBoxData.strokeColor = selectedColor;
+      textBoxData.fontSize = parseInt(fontSizeSelect.value);
+      textBoxData.isVertical = isVertical;
+      
+      console.log('Updated textBoxData:', textBoxData);
+      
+      // サイズを再計算
+      this.recalculateTextBoxSize(textBoxData);
+      
+      // 履歴をクリア（編集は新しい操作として扱う）
+      this.redoStack = [];
+      this.lastOperationType = 'path';
+      
+      // アンドゥ/リドゥボタンの状態を更新
+      this.updateUndoRedoButtons();
+      
+      // 再描画
+      this.redrawCanvas();
+      
+      console.log('Calling cleanup');
+      cleanup();
+    });
+    
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) {
+        cleanup();
+      }
+    });
+    
+    // テキストエリアにフォーカス
+    setTimeout(() => {
+      textInput.focus();
+      textInput.select();
+    }, 100);
+  }
+  
+  // テキストボックスのサイズを再計算
+  recalculateTextBoxSize(textBoxData) {
+    const text = textBoxData.text || '';
+    const fontSize = textBoxData.fontSize;
+    const padding = 20;
+    
+    this.ctx.font = `${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", Arial, sans-serif`;
+    
+    if (textBoxData.isVertical) {
+      // 縦書き：行数×フォントサイズで幅、最長行×フォントサイズで高さ
+      const lines = text.split('\n');
+      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
+      textBoxData.width = lines.length * fontSize * 1.2 + padding * 2;
+      textBoxData.height = maxLineLength * fontSize + padding * 2;
+    } else {
+      // 横書き：最長行の幅、行数×行高で高さ
+      const lines = text.split('\n');
+      let maxWidth = 0;
+      for (const line of lines) {
+        const metrics = this.ctx.measureText(line);
+        maxWidth = Math.max(maxWidth, metrics.width);
+      }
+      const lineHeight = fontSize * 1.3;
+      textBoxData.width = maxWidth + padding * 2;
+      textBoxData.height = lines.length * lineHeight + padding * 2;
+    }
+  }
+
   // 編集中のテキストボックスを完全に削除（テキスト入力フィールド + 空のテキストボックスデータのみ）
   removeCurrentTextBox() {
     console.log('=== removeCurrentTextBox 開始 ===');
@@ -3641,6 +4911,32 @@ export class DrawingCanvas {
         if (this.isPointNearShape(coords, pathData, eraserSize)) {
           console.log('扉を削除します');
           pathsToRemove.push(i);
+        }
+      } else if (pathData.tool === 'fill') {
+        // 塗りつぶしの場合 - 個別の位置を削除
+        if (pathData.positions) {
+          const remainingPositions = pathData.positions.filter(pos => {
+            // 消しゴムの位置と塗りつぶし位置の距離を計算
+            const centerX = pos.x + pos.size / 2;
+            const centerY = pos.y + pos.size / 2;
+            const distance = Math.sqrt(
+              Math.pow(coords.x - centerX, 2) + Math.pow(coords.y - centerY, 2)
+            );
+            // 消しゴムサイズ + 塗りつぶしサイズの半分以内なら削除
+            return distance > eraserSize + pos.size / 2;
+          });
+          
+          if (remainingPositions.length === 0) {
+            // 全ての位置が削除された場合、パス全体を削除
+            pathsToRemove.push(i);
+          } else if (remainingPositions.length < pathData.positions.length) {
+            // 一部の位置が削除された場合、パスを更新
+            pathData.positions = remainingPositions;
+            console.log('塗りつぶしの一部を削除:', {
+              削除前: pathData.positions.length + remainingPositions.length,
+              削除後: remainingPositions.length
+            });
+          }
         }
       } else if (pathData.startPoint && pathData.endPoint) {
         // その他の図形の場合 - 全体を削除
@@ -4401,14 +5697,15 @@ export class DrawingCanvas {
     
     ctx.stroke();
     
-    // 1マスのグリッド線（40px間隔）- 濃いグレー
+    // 1マスのグリッド線（40px間隔）- 点線で表示
     const startX = Math.floor(viewLeft / this.gridSize) * this.gridSize;
     const startY = Math.floor(viewTop / this.gridSize) * this.gridSize;
     const endX = Math.ceil(viewRight / this.gridSize) * this.gridSize;
     const endY = Math.ceil(viewBottom / this.gridSize) * this.gridSize;
     
-    ctx.strokeStyle = '#d0d0d0'; // 濃いグレー
+    ctx.strokeStyle = '#999999'; // 濃いグレー
     ctx.lineWidth = 1 / this.scale;
+    ctx.setLineDash([10 / this.scale, 10 / this.scale]); // 点線パターン（10px間隔）
     ctx.beginPath();
     
     // 垂直線（1マス）
@@ -4424,6 +5721,7 @@ export class DrawingCanvas {
     }
     
     ctx.stroke();
+    ctx.setLineDash([]); // 点線をリセット
     
     // 0.25マス間隔の点を描画（クォーターグリッド）
     const quarterGridSize = this.gridSize / 4; // 10px
@@ -5157,6 +6455,23 @@ export class DrawingCanvas {
     }
   }
 
+  // 履歴スタックに項目を追加（上限管理付き）
+  addToHistoryStack(stack, item) {
+    stack.push(item);
+    // 上限を超えた場合、最も古い項目を削除
+    if (stack.length > PERFORMANCE_CONFIG.MAX_HISTORY_SIZE) {
+      stack.shift();
+      console.log(`履歴スタックが上限(${PERFORMANCE_CONFIG.MAX_HISTORY_SIZE})を超えたため、最古の項目を削除しました`);
+    }
+  }
+
+  // redoスタックをクリアする際に呼び出す（メモリ解放も考慮）
+  clearRedoStack() {
+    this.redoStack = [];
+    this.segmentRedoStack = [];
+    this.eraserRedoStack = [];
+  }
+
   replaceLastStroke(shapeData) {
     if (this.allPaths.length > 0) {
       this.allPaths[this.allPaths.length - 1] = shapeData;
@@ -5226,7 +6541,7 @@ export class DrawingCanvas {
   // 直線を半マス単位でセグメント分割（角度考慮版）
   getLineSegmentsHalfGrid(pathData) {
     const segments = [];
-    const halfGrid = this.gridSize / 2; // 80ピクセル = 0.5マス
+    const quarterGrid = this.gridSize / 4; // 40ピクセル = 0.25マス
     const start = pathData.startPoint;
     const end = pathData.endPoint;
     
@@ -5242,11 +6557,11 @@ export class DrawingCanvas {
     const angleInDegrees = (angle * 180) / Math.PI;
     
     // 角度に応じたセグメント長を計算
-    let effectiveSegmentLength = halfGrid;
+    let effectiveSegmentLength = quarterGrid;
     
-    // 45度付近（35-55度）の場合は√2倍にして、グリッド上の0.5マス距離に合わせる
+    // 45度付近（35-55度）の場合は√2倍にして、グリッド上の0.25マス距離に合わせる
     if (angleInDegrees >= 35 && angleInDegrees <= 55) {
-      effectiveSegmentLength = halfGrid * Math.sqrt(2);
+      effectiveSegmentLength = quarterGrid * Math.sqrt(2);
     }
     
     // 単位ベクトル
@@ -5288,7 +6603,7 @@ export class DrawingCanvas {
   // 四角形を半マス単位でセグメント分割（辺ごと）
   getRectangleSegmentsHalfGrid(pathData) {
     const segments = [];
-    const halfGrid = this.gridSize / 2;
+    const quarterGrid = this.gridSize / 4;
     const start = pathData.startPoint;
     const end = pathData.endPoint;
     
@@ -5305,7 +6620,7 @@ export class DrawingCanvas {
       { start: bottomLeft, end: topLeft, side: 'left' }
     ];
     
-    // 各辺を半マス単位で分割
+    // 各辺を0.25マス単位で分割
     edges.forEach(edge => {
       const dx = edge.end.x - edge.start.x;
       const dy = edge.end.y - edge.start.y;
@@ -5316,14 +6631,14 @@ export class DrawingCanvas {
       const unitX = dx / length;
       const unitY = dy / length;
       
-      for (let i = 0; i < length; i += halfGrid) {
+      for (let i = 0; i < length; i += quarterGrid) {
         const segStart = {
           x: edge.start.x + unitX * i,
           y: edge.start.y + unitY * i
         };
         const segEnd = {
-          x: edge.start.x + unitX * Math.min(i + halfGrid, length),
-          y: edge.start.y + unitY * Math.min(i + halfGrid, length)
+          x: edge.start.x + unitX * Math.min(i + quarterGrid, length),
+          y: edge.start.y + unitY * Math.min(i + quarterGrid, length)
         };
         segments.push({ 
           start: segStart, 
@@ -5538,6 +6853,28 @@ export class DrawingCanvas {
     console.log(`階段の横線長さを変更: ${this.stairWidth}px (0.25マス単位調整済み)`);
   }
 
+  // 階段タイプを設定
+  setStairType(type) {
+    if (['straight', 'l-shape', 'spiral'].includes(type)) {
+      this.stairType = type;
+      console.log(`階段タイプを変更: ${type}`);
+    }
+  }
+
+  setFillSize(size) {
+    if (['quarter', 'half', 'one'].includes(size)) {
+      this.fillSize = size;
+      console.log(`塗りつぶしサイズを変更: ${size}`);
+    }
+  }
+
+  setFillPattern(pattern) {
+    if (['solid', 'diagonal'].includes(pattern)) {
+      this.fillPattern = pattern;
+      console.log(`塗りつぶしパターンを変更: ${pattern}`);
+    }
+  }
+
   getStairWidth() {
     return this.stairWidth;
   }
@@ -5691,10 +7028,10 @@ export class DrawingCanvas {
     try {
       console.log('🖼️ 画像エクスポート開始（PDF完全準拠）:', format);
       
-      // PDFと全く同じ設定値を使用
+      // PNG形式の場合は余白なし、それ以外はPDFと同じ
       const pdfWidth = 210; // A4幅(mm)
       const pdfHeight = 297; // A4高さ(mm)
-      const margin = 15; // 余白(mm) - PDFと同じ
+      const margin = format === 'png' ? 0 : 15; // PNG: 余白なし、JPG: 余白あり
       const headerHeight = 20; // ヘッダー高さ(mm) - PDFと同じ
       const footerHeight = 0; // フッター削除 - PDFと同じ
       
@@ -5710,9 +7047,10 @@ export class DrawingCanvas {
       const captureWidth = captureWidthMas * this.gridSize;   
       const captureHeight = captureHeightMas * this.gridSize; 
       
-      // PDFと同じキャプチャ開始位置
-      const startX = -captureWidth / 2;  // PDFと同じ
-      const startY = -captureHeight / 2; // PDFと同じ
+      // グリッドに合わせたキャプチャ開始位置（0.5マス分調整）
+      const halfGrid = this.gridSize / 2;
+      const startX = -captureWidth / 2 + halfGrid;  // 0.5マス右にシフト
+      const startY = -captureHeight / 2 + halfGrid; // 0.5マス下にシフト
       
       console.log('キャプチャ範囲（PDF準拠）:', {
         マス数: { width: captureWidthMas, height: captureHeightMas },
@@ -5725,9 +7063,11 @@ export class DrawingCanvas {
       const dpi = 300; // 300DPI
       const mmToPx = dpi / 25.4; // 1mm = 約11.81px
       
+      // PNG/JPG共にA4フルサイズ(210mm × 297mm)
       const imageWidth = Math.round(pdfWidth * mmToPx);
       const imageHeight = Math.round(pdfHeight * mmToPx);
-      const marginPx = Math.round(margin * mmToPx);
+      
+      const marginPx = Math.round(margin * mmToPx); // PNG: 0, JPG: 15mm
       const headerHeightPx = Math.round(headerHeight * mmToPx);
       
       const canvas = document.createElement('canvas');
@@ -5812,24 +7152,27 @@ export class DrawingCanvas {
       });
       
       // PDFと同じロゴを描画
-      await this.drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight);
+      await this.drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight, format);
       
       // PDFと同じオレンジ色の枠線を描画（ヘッダーごと囲む）
       ctx.strokeStyle = '#e26b0a'; // PDFと同じ色 (RGB: 226, 107, 10)
       ctx.lineWidth = 1 * mmToPx; // PDFと同じ線の太さ (1mm)
       
-      // 枠線の範囲（ヘッダーの上から図面の下まで）
+      // 枠線の範囲（PNG: 端から端まで、JPG: 余白内）
       const frameX = marginPx;
       const frameY = marginPx;
       const frameWidth = imageWidth - (marginPx * 2);
-      const frameHeight = headerHeightPx + finalHeight;
+      const frameHeight = imageHeight - (marginPx * 2);
       
       ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
       
       console.log('オレンジ色枠線を画像に追加:', {
         color: '#e26b0a',
         lineWidth: 1 * mmToPx,
-        frame: { x: frameX, y: frameY, width: frameWidth, height: frameHeight }
+        format: format,
+        margin: marginPx,
+        frame: { x: frameX, y: frameY, width: frameWidth, height: frameHeight },
+        imageSize: { width: imageWidth, height: imageHeight }
       });
       
       // 最終的な画像として出力
@@ -5918,8 +7261,8 @@ export class DrawingCanvas {
       textImg.src = textImageData;
     });
     
-    // PDFと同じ太い線を描画（#99ccff色、12mm太さ）
-    const lineThicknessMm = 12;
+    // PDFと同じ太い線を描画（#99ccff色、6mm太さ）
+    const lineThicknessMm = 6; // 12mmから6mmに変更
     const lineThicknessPx = lineThicknessMm * mmToPx;
     const lineY = marginPx + headerHeightPx;
     
@@ -5939,7 +7282,7 @@ export class DrawingCanvas {
   }
 
   // 画像にロゴを描画（PDFと同じ）
-  async drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight) {
+  async drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight, format = 'jpg') {
     try {
       // ロゴ画像を読み込み
       const logoImg = new Image();
@@ -5955,15 +7298,14 @@ export class DrawingCanvas {
       const aspectRatio = logoImg.width / logoImg.height;
       const logoWidth = logoHeight * aspectRatio;
       
-      // 最適化されたロゴ位置計算（一番右下に綺麗に配置）
+      // A4フルサイズ基準で配置（PNG/JPG共通）
       const a4WidthMm = 210;
       const a4HeightMm = 297;
-      const marginMm = 10;
+      const edgeMarginMm = format === 'png' ? 5 : 10; // PNG: 端から5mm、JPG: 端から10mm
       
-      // ロゴを一番右下に配置（マージンから5mm内側）
-      const logoMarginMm = 5; // ロゴ周りの余白
-      const logoXMm = a4WidthMm - marginMm - logoHeightMm * aspectRatio - logoMarginMm;
-      const logoYMm = a4HeightMm - marginMm - logoHeightMm - logoMarginMm;
+      // 右下配置：右端からedgeMarginMm、下端からedgeMarginMm
+      const logoXMm = a4WidthMm - edgeMarginMm - (logoHeightMm * aspectRatio);
+      const logoYMm = a4HeightMm - edgeMarginMm - logoHeightMm;
       
       // mm → px 変換
       const logoX = logoXMm * mmToPx;
@@ -5972,24 +7314,11 @@ export class DrawingCanvas {
       // キャンバスにロゴを描画
       ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight);
       
-      console.log('ロゴ画像を画像に追加しました（右下端配置）:', {
+      console.log(`ロゴ画像を画像に追加しました（${format}形式、右下端配置）:`, {
+        format: format,
         logoSize: { width: logoWidth, height: logoHeight },
         logoPosition: { x: logoX, y: logoY },
-        配置詳細: {
-          a4WidthMm,
-          a4HeightMm,
-          marginMm,
-          logoMarginMm,
-          logoWidthMm: logoHeightMm * aspectRatio,
-          logoHeightMm,
-          mmToPx,
-          計算式: {
-            logoXMm: `${a4WidthMm} - ${marginMm} - ${logoHeightMm * aspectRatio} - ${logoMarginMm} = ${logoXMm}`,
-            logoYMm: `${a4HeightMm} - ${marginMm} - ${logoHeightMm} - ${logoMarginMm} = ${logoYMm}`,
-            logoX: `${logoXMm} * ${mmToPx} = ${logoX}`,
-            logoY: `${logoYMm} * ${mmToPx} = ${logoY}`
-          }
-        }
+        logoPositionMm: { x: logoXMm, y: logoYMm }
       });
       
     } catch (error) {
@@ -6275,10 +7604,10 @@ export class DrawingCanvas {
         PDF最適比: optimalRatio.toFixed(3)
       });
       
-      // キャプチャ範囲の開始位置（描画データが含まれるように調整）
-      // 座標(160,0) → (320,0)の線を含めるため、負の座標から開始
-      const startX = -captureWidth / 2;  // 中央を基準にして左半分も含める
-      const startY = -captureHeight / 2; // 中央を基準にして上半分も含める
+      // グリッドに合わせたキャプチャ開始位置（0.5マス分調整）
+      const halfGrid = this.gridSize / 2;
+      const startX = -captureWidth / 2 + halfGrid;  // 0.5マス右にシフト
+      const startY = -captureHeight / 2 + halfGrid; // 0.5マス下にシフト
       
       // 指定範囲をキャプチャするための一時キャンバスを作成（改善版）
       const tempCanvas = document.createElement('canvas');
@@ -6652,9 +7981,9 @@ export class DrawingCanvas {
     const imageFormat = textImageData.startsWith('data:image/png') ? 'PNG' : 'JPEG';
     pdf.addImage(textImageData, imageFormat, margin + 2, margin + 1, textDisplayWidth, textDisplayHeight);
     
-    // ヘッダー下に非常に太い線を追加（#99ccff色、12mm）
+    // ヘッダー下に太い線を追加（#99ccff色、6mm）
     pdf.setDrawColor(153, 204, 255); // #99ccff (RGB: 153, 204, 255)
-    pdf.setLineWidth(12); // 非常に太い線（12mm）
+    pdf.setLineWidth(6); // 太い線（6mm、12mmから半分に変更）
     pdf.line(margin, margin + headerHeight, pdfWidth - margin, margin + headerHeight);
   }
 
@@ -6816,9 +8145,10 @@ export class DrawingCanvas {
       ctx.stroke();
     }
     
-    // 1マスの線（160px間隔）- 正方形グリッド
-    ctx.strokeStyle = '#d0d0d0';
+    // 1マスの線（160px間隔）- 点線で表示
+    ctx.strokeStyle = '#999999';
     ctx.lineWidth = 1;
+    ctx.setLineDash([10, 10]); // 点線パターン（10px間隔）
     
     // 垂直線（1マス）- 正方形グリッド
     for (let x = pdfGridSize; x < width; x += pdfGridSize) {
@@ -6835,6 +8165,8 @@ export class DrawingCanvas {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+    
+    ctx.setLineDash([]); // 点線をリセット
     
     // 中心線（正方形グリッドに合わせて配置）
     // 縦中心線：9マス目の中央から0.5マス左に移動（8.5マス目）
@@ -7089,6 +8421,53 @@ export class DrawingCanvas {
       // PDF用テキストボックス描画
       this.drawTextBoxOnContext(ctx, adjustedX, adjustedY, pathData);
       ctx.restore();
+    } else if (pathData.tool === 'fill') {
+      // 塗りつぶしツール描画
+      console.log('塗りつぶし描画:', pathData);
+      const pattern = pathData.fillPattern || 'solid';
+      if (pathData.positions) {
+        pathData.positions.forEach(pos => {
+          const posPattern = pos.pattern || pattern;
+          const adjustedX = pos.x - offsetX;
+          const adjustedY = pos.y - offsetY;
+          
+          if (posPattern === 'diagonal') {
+            // 斜線パターン
+            ctx.save();
+            
+            // 背景に薄い色を塗る
+            ctx.fillStyle = pathData.strokeColor + '20'; // 透明度12.5%
+            ctx.fillRect(adjustedX, adjustedY, pos.size, pos.size);
+            
+            // クリッピング領域を設定
+            ctx.beginPath();
+            ctx.rect(adjustedX, adjustedY, pos.size, pos.size);
+            ctx.clip();
+            
+            // 斜線を描画
+            ctx.strokeStyle = pathData.strokeColor;
+            ctx.lineWidth = 2;
+            const spacing = 16;
+            ctx.beginPath();
+            for (let offset = -pos.size; offset < pos.size * 2; offset += spacing) {
+              ctx.moveTo(adjustedX + offset, adjustedY);
+              ctx.lineTo(adjustedX + offset + pos.size, adjustedY + pos.size);
+            }
+            ctx.stroke();
+            
+            ctx.restore();
+            
+            // 枠線を描画
+            ctx.strokeStyle = pathData.strokeColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(adjustedX, adjustedY, pos.size, pos.size);
+          } else {
+            // 塗りつぶし
+            ctx.fillStyle = pathData.strokeColor;
+            ctx.fillRect(adjustedX, adjustedY, pos.size, pos.size);
+          }
+        });
+      }
     }
     // 旧形式との互換性のため、type プロパティもチェック
     else if (pathData.type === 'line' && pathData.startPoint && pathData.endPoint) {
@@ -7199,6 +8578,15 @@ export class DrawingCanvas {
         break;
       case 'smallbox':
         this.drawSmallBoxOnContext(ctx, doorStart, doorEnd);
+        break;
+      case 'circle':
+        this.drawCircleSymbolOnContext(ctx, doorStart, doorEnd);
+        break;
+      case 'square':
+        this.drawSquareSymbolOnContext(ctx, doorStart, doorEnd);
+        break;
+      case 'cross':
+        this.drawCrossSymbolOnContext(ctx, doorStart, doorEnd);
         break;
       case 'single-left':
         this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth, 'left');
@@ -7393,18 +8781,67 @@ export class DrawingCanvas {
     
     ctx.save();
     
-    // 開口部の描画（薄いグレーの塗りつぶし）
-    ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+    // 開口部の描画（透けた青色の塗りつぶし）
+    ctx.fillStyle = 'rgba(100, 150, 255, 0.3)'; // 透けた青色
     ctx.fillRect(boxX, boxY, boxSize, boxSize);
     
-    // 境界線
+    // 境界線（青色）
     ctx.lineWidth = 1;
-    ctx.strokeStyle = '#666666';
+    ctx.strokeStyle = '#4080ff'; // 青色の枠線
     ctx.strokeRect(boxX, boxY, boxSize, boxSize);
     
     ctx.restore();
     
     console.log('📦 PDF用小箱描画完了:', { boxX, boxY, boxSize });
+  }
+
+  // PDF用○シンボル描画（塗りつぶし）
+  drawCircleSymbolOnContext(ctx, start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    const centerX = start.x + size / 2;
+    const centerY = start.y + size / 2;
+    const radius = size / 2;
+    
+    ctx.save();
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // PDF用□シンボル描画（塗りつぶし）
+  drawSquareSymbolOnContext(ctx, start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    
+    ctx.save();
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(start.x, start.y, size, size);
+    ctx.restore();
+  }
+
+  // PDF用×シンボル描画（太線）
+  drawCrossSymbolOnContext(ctx, start, end) {
+    const size = this.gridSize / 2; // 0.5マス
+    
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 10; // さらに太くする
+    ctx.lineCap = 'round'; // 端を丸くする
+    
+    // 左上から右下への線
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(start.x + size, start.y + size);
+    ctx.stroke();
+    
+    // 右上から左下への線
+    ctx.beginPath();
+    ctx.moveTo(start.x + size, start.y);
+    ctx.lineTo(start.x, start.y + size);
+    ctx.stroke();
+    
+    ctx.restore();
   }
 
   // PDF用階段描画メソッド
@@ -7542,10 +8979,10 @@ export class DrawingCanvas {
       }
     }
     
-    // 枠線を描画
-    ctx.strokeStyle = pathData.strokeColor || '#CCCCCC';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, width, height);
+    // 枠線は描画しない（画像・PDF出力時は枠線不要）
+    // ctx.strokeStyle = pathData.strokeColor || '#CCCCCC';
+    // ctx.lineWidth = 1;
+    // ctx.strokeRect(x, y, width, height);
     
     console.log('PDF用テキストボックス最終サイズ:', { x, y, width, height, 元サイズ: { width: pathData.width, height: pathData.height } });
     
@@ -7773,21 +9210,22 @@ export class DrawingCanvas {
       // 設定の復元
       if (projectData.settings) {
         if (projectData.settings.gridSize) {
-          this.setGridSize(projectData.settings.gridSize);
+          this.gridSize = projectData.settings.gridSize;
         }
         if (projectData.settings.scale !== undefined) {
-          this.setScale(projectData.settings.scale);
+          this.scale = projectData.settings.scale;
         }
         if (projectData.settings.offsetX !== undefined || projectData.settings.offsetY !== undefined) {
-          this.setOffset(projectData.settings.offsetX || 0, projectData.settings.offsetY || 0);
+          this.translateX = projectData.settings.offsetX || 0;
+          this.translateY = projectData.settings.offsetY || 0;
         }
         if (projectData.settings.snapToGrid !== undefined) {
-          this.setSnapToGrid(projectData.settings.snapToGrid);
+          this.snapToGrid = projectData.settings.snapToGrid;
         }
       }
 
-      // キャンバスを再描画
-      this.redrawCanvas();
+      // 注: 再描画は呼び出し元（main.js の restoreProjectData）で行う
+      // ここで呼ぶとスロットリングにより後続の再描画がスキップされる可能性がある
       
       console.log(`プロジェクトデータを読み込みました: ${this.allPaths.length}個のパス`);
 

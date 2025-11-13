@@ -259,7 +259,7 @@ body {
   padding: 10px;
   display: flex;
   align-items: flex-start;
-  gap: 15px;
+  gap: 10px;
   flex-wrap: wrap;
   box-shadow: 0 2px 4px var(--shadow-color);
   min-height: 60px;
@@ -300,6 +300,24 @@ body {
   filter: var(--img-filter, none);
 }
 
+.tool-btn-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tool-text {
+  font-size: 28px;
+  font-weight: bold;
+  color: var(--text-primary);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.tool-btn.active .tool-text {
+  color: white;
+}
+
 .tool-btn:hover {
   background: var(--button-hover);
   border-color: var(--accent-color);
@@ -314,6 +332,54 @@ body {
 #export-btn.active {
   background: #007ACC;
   color: white;
+}
+
+/* エクスポートボタン（右上固定） */
+.export-btn-fixed {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1001;
+  background: var(--button-bg);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 48px;
+  height: 48px;
+  display: none; /* 初期状態は非表示 */
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.export-btn-fixed img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* ダークモードでのエクスポートボタン画像 */
+[data-theme="dark"] .export-btn-fixed img {
+  filter: invert(1) brightness(0.8);
+}
+
+.export-btn-fixed:hover {
+  background: var(--button-hover);
+  border-color: var(--accent-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.export-btn-fixed.active {
+  background: #007ACC;
+  color: white;
+  border-color: #007ACC;
+}
+
+.export-btn-fixed:active {
+  transform: scale(0.95);
 }
 
 .tool-btn:active {
@@ -426,6 +492,7 @@ body {
   background: #e0e0e0;
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 #stroke-width::-webkit-slider-thumb {
@@ -461,6 +528,7 @@ body {
   background: #e0e0e0;
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 #pen-width::-webkit-slider-thumb {
@@ -567,6 +635,7 @@ body {
   background: #ffcccc;
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 #eraser-size::-webkit-slider-thumb {
@@ -587,14 +656,182 @@ body {
   flex-shrink: 0;
 }
 
-#stroke-color {
-  width: 44px;
+/* カラーセレクター */
+.color-selector-wrapper {
+  position: relative;
+}
+
+.color-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--button-bg);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
   height: 44px;
-  border: 2px solid #e0e0e0;
+}
+
+.color-selector-btn:hover {
+  background: var(--button-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.current-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+}
+
+.color-selector-btn.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.color-dropdown {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  background: var(--toolbar-bg);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 4px 20px var(--shadow-color);
+  z-index: 1000;
+  display: none;
+  min-width: 200px;
+}
+
+.color-dropdown.show {
+  display: block;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.color-btn {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  position: relative;
+}
+
+.color-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+  z-index: 1;
+}
+
+.color-btn.active::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: 20px;
+  font-weight: bold;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+.custom-color-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.custom-color-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pattern-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.pattern-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pattern-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s ease;
+}
+
+.pattern-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary-color);
+}
+
+.pattern-btn.active {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.color-picker-input {
+  width: 100%;
+  height: 40px;
+  border: 2px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
   background: none;
-  padding: 0;
+  padding: 4px;
+}
+
+#stroke-color {
+  width: 100%;
+  height: 40px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  background: none;
+  padding: 4px;
 }
 
 #font-size {
@@ -718,6 +955,142 @@ body {
   cursor: text !important;
 }
 
+/* iPad/タブレット専用の最適化（2行レイアウト） */
+@media (min-width: 768px) and (max-width: 1024px), 
+       (pointer: coarse) and (min-width: 768px) and (max-width: 1366px) {
+  .toolbar {
+    padding: 6px 8px;
+    gap: 6px;
+    min-height: auto;
+    max-height: 110px; /* 2行に制限 */
+    align-items: center;
+  }
+  
+  .tool-group {
+    gap: 3px;
+    flex-wrap: nowrap; /* グループ内で折り返さない */
+  }
+  
+  .tool-btn {
+    width: 40px;
+    height: 40px;
+    padding: 5px;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  
+  .tool-btn img {
+    width: 26px;
+    height: 26px;
+  }
+  
+  .tool-text {
+    font-size: 22px;
+  }
+  
+  /* 定型文コンテナをコンパクトに */
+  .preset-text-container {
+    padding: 4px 6px;
+    gap: 4px;
+    margin: 0 4px;
+  }
+  
+  #preset-text-select {
+    min-width: 90px;
+    max-width: 120px;
+    font-size: 11px;
+    padding: 3px 5px;
+    height: 28px;
+  }
+  
+  #preset-text-place {
+    padding: 3px 6px;
+    font-size: 11px;
+    min-width: 36px;
+    height: 28px;
+  }
+  
+  /* カラーセレクターをコンパクトに */
+  .color-selector-container {
+    gap: 4px;
+  }
+  
+  #stroke-color {
+    width: 30px;
+    height: 30px;
+  }
+  
+  #font-size {
+    min-width: 55px;
+    height: 30px;
+    font-size: 10px;
+    padding: 3px 5px;
+  }
+  
+  /* ペン太さ・消しゴムサイズのスライダーをコンパクトに */
+  #pen-width, #eraser-size {
+    width: 55px;
+    height: 3px;
+  }
+  
+  .pen-preview, .eraser-preview {
+    width: 18px;
+    height: 18px;
+  }
+  
+  /* ペン太さ・消しゴムサイズのグループをコンパクトに */
+  .pen-width-group, .eraser-size-group {
+    gap: 4px;
+  }
+  
+  /* 線スタイル切り替えボタン */
+  #line-style-toggle {
+    padding: 4px 8px;
+    font-size: 11px;
+    height: 28px;
+  }
+  
+  /* 建具・階段・塗りつぶしのコントロール */
+  #door-type, .stair-size-btn, .fill-size-btn, .stair-type-btn {
+    padding: 3px 6px;
+    font-size: 10px;
+    height: 26px;
+    min-width: 32px;
+  }
+  
+  /* アクションボタン（クリア、アンドゥ、リドゥ、ダークモード） */
+  #clear-btn, #undo-btn, #redo-btn, #dark-mode-btn {
+    width: 38px;
+    height: 38px;
+    padding: 5px;
+  }
+  
+  #clear-btn img, #undo-btn img, #redo-btn img, #dark-mode-btn img {
+    width: 24px;
+    height: 24px;
+  }
+  
+  /* 右上固定のエクスポートボタン（iPad対応） */
+  .export-btn-fixed {
+    width: 40px;
+    height: 40px;
+    padding: 6px;
+    top: 8px;
+    right: 8px;
+  }
+  
+  .export-btn-fixed img {
+    width: 26px;
+    height: 26px;
+  }
+  
+  /* エクスポートメニューの位置調整 */
+  .export-menu {
+    top: 58px;
+    right: 8px;
+  }
+}
+
 /* レスポンシブ対応 */
 @media (max-width: 768px) {
   .toolbar {
@@ -822,6 +1195,55 @@ body {
   border-color: #005a9e;
 }
 
+/* 階段タイプボタンスタイル */
+.stair-type-btn {
+  padding: 4px 8px;
+  margin: 0 2px;
+  border: 1px solid #ddd;
+  background: #f8f8f8;
+  color: #333;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 28px;
+  transition: all 0.2s ease;
+}
+
+.stair-type-btn:hover {
+  background: #e8e8e8;
+  border-color: #ccc;
+}
+
+.stair-type-btn.active {
+  background: #007acc;
+  color: white;
+  border-color: #005a9e;
+}
+
+/* 塗りつぶしサイズボタン */
+.fill-size-btn {
+  padding: 6px 12px;
+  margin: 0 4px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.fill-size-btn:hover {
+  background: #f0f0f0;
+  border-color: #007acc;
+}
+
+.fill-size-btn.active {
+  background: #007acc;
+  color: white;
+  border-color: #005a9e;
+}
+
 /* 縦書きテキスト入力エリア用スタイル（iPad/Safari対応） */
 .text-input-overlay.vertical {
   writing-mode: vertical-rl !important;
@@ -897,11 +1319,11 @@ body {
 
 /* エクスポートメニュー */
 .export-menu {
-  position: absolute;
-  top: 60px;
+  position: fixed;
+  top: 68px;
   right: 10px;
-  background: #ffffff;
-  border: 1px solid #e0e0e0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
@@ -914,8 +1336,8 @@ body {
   width: 100%;
   padding: 12px 16px;
   border: none;
-  background: #ffffff;
-  color: #333;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-size: 14px;
   font-family: inherit;
   text-align: left;
@@ -925,15 +1347,15 @@ body {
 }
 
 .export-option:hover {
-  background-color: #f5f5f5;
+  background-color: var(--button-hover);
 }
 
 .export-option:active {
-  background-color: #e8e8e8;
+  background-color: var(--button-active);
 }
 
 .export-option:not(:last-child) {
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 /* タッチデバイス用の大きめタッチエリア */
