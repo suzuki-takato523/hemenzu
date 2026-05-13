@@ -112,6 +112,9 @@
           <button id="rect-tool" class="tool-btn" title="四角形">
             <img src="/square.png" alt="四角形">
           </button>
+          <button id="fill-tool" class="tool-btn" title="塗りつぶし">
+            <img src="/baketu.png" alt="塗りつぶし">
+          </button>
           <button id="door-tool" class="tool-btn" title="建具">
             <img src="/furniture.png" alt="建具">
           </button>
@@ -123,9 +126,6 @@
           </button>
           <button id="text-v-tool" class="tool-btn" title="縦書きテキスト">
             <img src="/text box with vertical writing.png" alt="縦書きテキスト">
-          </button>
-          <button id="fill-tool" class="tool-btn" title="塗りつぶし">
-            <img src="/baketu.png" alt="塗りつぶし">
           </button>
           
           <!-- 定型文プルダウン -->
@@ -245,6 +245,10 @@
               <option value="square">□(0.5マス)</option>
               <option value="cross">×(0.5マス)</option>
             </select>
+            <span class="width-label" style="margin-left: 10px;" id="opening-size-label">大きさ:</span>
+            <button id="opening-size-quarter" class="opening-size-btn" title="0.25マス">0.25</button>
+            <button id="opening-size-half" class="opening-size-btn active" title="0.5マス">0.5</button>
+            <button id="opening-size-one" class="opening-size-btn" title="1マス">1</button>
           </div>
           <div id="stairs-control" class="stairs-control-group" style="display: none;">
             <span class="width-label">階段:</span>

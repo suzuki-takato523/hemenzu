@@ -1195,6 +1195,58 @@ body {
   border-color: #005a9e;
 }
 
+/* 開口部サイズボタンスタイル（階段サイズボタンと同じ） */
+.opening-size-btn {
+  padding: 4px 8px;
+  margin: 0 2px;
+  border: 1px solid #ddd;
+  background: #f8f8f8;
+  color: #333;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 40px;
+  transition: all 0.2s ease;
+}
+
+.opening-size-btn:hover {
+  background: #e8e8e8;
+  border-color: #ccc;
+}
+
+.opening-size-btn.active {
+  background: #007acc;
+  color: white;
+  border-color: #005a9e;
+}
+
+/* 建具図形色ボタンスタイル */
+.door-color-btn {
+  padding: 4px 6px;
+  margin-left: 8px;
+  border: 1px solid #ddd;
+  background: #f8f8f8;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.door-color-btn:hover {
+  background: #e8e8e8;
+  border-color: #ccc;
+}
+
+.door-symbol-color {
+  display: inline-block;
+  width: 24px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid #999;
+}
+
 /* 階段タイプボタンスタイル */
 .stair-type-btn {
   padding: 4px 8px;

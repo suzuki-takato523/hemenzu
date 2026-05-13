@@ -352,10 +352,14 @@ class FloorPlanApp {
         // キャンバス座標系での中央を計算
         const centerX = (canvasRect.width / 2 - this.canvas.translateX) / this.canvas.scale;
         const centerY = (canvasRect.height / 2 - this.canvas.translateY) / this.canvas.scale;
+        // グリッドにスナップ（0.5マス単位 = 80px）
+        const snapSize = this.canvas.gridSize / 2; // 80px
+        const snappedX = Math.round(centerX / snapSize) * snapSize;
+        const snappedY = Math.round(centerY / snapSize) * snapSize;
         const fontSize = this.canvas.fontSize;
         const width = fontSize * 12; // 12文字分の幅
         const height = fontSize * 2;
-        this.canvas.createTextBoxAuto(centerX, centerY, width, height, false);
+        this.canvas.createTextBoxAuto(snappedX, snappedY, width, height, false);
       });
     } else {
       console.error('text-h-tool button not found');
@@ -410,10 +414,14 @@ class FloorPlanApp {
         // キャンバス座標系での中央を計算
         const centerX = (elementRect.width / 2 - this.canvas.translateX) / this.canvas.scale;
         const centerY = (elementRect.height / 2 - this.canvas.translateY) / this.canvas.scale;
+        // グリッドにスナップ（0.5マス単位 = 80px）
+        const snapSize = this.canvas.gridSize / 2; // 80px
+        const snappedX = Math.round(centerX / snapSize) * snapSize;
+        const snappedY = Math.round(centerY / snapSize) * snapSize;
         const fontSize = this.canvas.fontSize;
         const width = fontSize * 2;
         const height = fontSize * 6;
-        this.canvas.createTextBoxAuto(centerX, centerY, width, height, true);
+        this.canvas.createTextBoxAuto(snappedX, snappedY, width, height, true);
       });
     } else {
       console.error('text-v-tool button not found');
@@ -639,8 +647,31 @@ class FloorPlanApp {
     if (doorType) {
       doorType.addEventListener('change', (e) => {
         this.canvas.setDoorType(e.target.value);
+        // 開口部以外の場合はサイズ選択ボタンを非表示
+        this.updateOpeningSizeVisibility(e.target.value);
       });
     }
+
+    // 開口部サイズ切り替え（開口部専用）
+    const openingSizeButtons = ['quarter', 'half', 'one'];
+    openingSizeButtons.forEach(size => {
+      const button = document.getElementById(`opening-size-${size}`);
+      if (button) {
+        button.addEventListener('click', () => {
+          // 他のボタンのactiveクラスを削除
+          openingSizeButtons.forEach(s => {
+            const btn = document.getElementById(`opening-size-${s}`);
+            if (btn) btn.classList.remove('active');
+          });
+          
+          // クリックされたボタンをアクティブに
+          button.classList.add('active');
+          
+          // サイズを設定
+          this.canvas.setOpeningSize(size);
+        });
+      }
+    });
 
     // 階段サイズ切り替え（階段ツール専用）
     const stairSizeButtons = ['small', 'medium', 'large'];
@@ -1340,6 +1371,25 @@ class FloorPlanApp {
     }
   }
 
+  updateOpeningSizeVisibility(doorType) {
+    const openingSizeLabel = document.getElementById('opening-size-label');
+    const openingSizeButtons = ['quarter', 'half', 'one'];
+    
+    // 開口部の場合のみサイズ選択ボタンを表示
+    const isSmallbox = doorType === 'smallbox';
+    
+    if (openingSizeLabel) {
+      openingSizeLabel.style.display = isSmallbox ? 'inline' : 'none';
+    }
+    
+    openingSizeButtons.forEach(size => {
+      const button = document.getElementById(`opening-size-${size}`);
+      if (button) {
+        button.style.display = isSmallbox ? 'inline-block' : 'none';
+      }
+    });
+  }
+
   updateToolUI(tool) {
     const penWidthControl = document.getElementById('pen-width-control');
     const eraserSizeControl = document.getElementById('eraser-size-control');
@@ -1833,20 +1883,11 @@ class FloorPlanApp {
   resetCanvasState() {
     if (!this.canvas) return;
     
-    console.error('resetCanvasState: 開始');
-    
     // テキスト編集中の場合は先に終了
     this.handleToolSwitch();
     
     // キャンバスコンテキストを完全にクリア
     this.canvas.ctx.clearRect(0, 0, this.canvas.canvas.width, this.canvas.canvas.height);
-    
-    // デバッグ: クリア前の状態を確認
-    console.error('クリア前の状態:', {
-      allPathsLength: this.canvas.allPaths.length,
-      historyLength: this.canvas.history ? this.canvas.history.length : 'undefined',
-      currentTool: this.canvas.currentTool
-    });
     
     // キャンバスの完全クリア
     this.canvas.allPaths = [];
@@ -1889,18 +1930,9 @@ class FloorPlanApp {
     this.canvas.isShowingTouchPreview = false;
     
     // ツールを明示的にペンツールにリセット
-    console.error('ツールリセット前:', { currentTool: this.canvas.currentTool });
     this.canvas.setTool('pen');
     this.toolManager.setTool('pen');
     this.updateToolUI('pen');
-    console.error('ツールリセット後:', { currentTool: this.canvas.currentTool });
-    
-    // デバッグ: クリア後の状態を確認
-    console.error('クリア後の状態:', {
-      allPathsLength: this.canvas.allPaths.length,
-      historyLength: this.canvas.history ? this.canvas.history.length : 'undefined',
-      currentTool: this.canvas.currentTool
-    });
     
     // キャンバスを再描画してクリア
     this.canvas.redrawCanvas();
@@ -1920,12 +1952,8 @@ class FloorPlanApp {
     
     // アンドゥ/リドゥボタンの状態を更新
     if (typeof this.canvas.updateUndoRedoButtons === 'function') {
-      console.error('resetCanvasState: updateUndoRedoButtons呼び出し前');
       this.canvas.updateUndoRedoButtons();
-      console.error('resetCanvasState: updateUndoRedoButtons呼び出し後');
     }
-    
-    console.error('resetCanvasState: 完了');
   }
 
   // アプリケーション状態の完全リセット
