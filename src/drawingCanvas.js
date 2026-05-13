@@ -1,3 +1,20 @@
+import {
+  distanceToLine,
+  distanceToLineSegment,
+  isPointNearLineSegmentImproved,
+  isPointNearLineSegment,
+  isPointNearRectangle,
+  isPointNearCircle,
+  getArrowHeadRegion,
+  isPointInArrowHead,
+  isSegmentInArrowHead,
+  createLineFromSegments,
+  calculatePolylineLength,
+} from './canvas/geometry.js';
+import { pdfRendererMethods } from './canvas/pdfRenderer.js';
+import { exportMethods } from './canvas/export.js';
+import { backgroundImageMethods } from './canvas/backgroundImage.js';
+
 // 定数定義
 const PERFORMANCE_CONFIG = {
   DEBOUNCE_DELAY: 16, // 約60FPS
@@ -208,76 +225,8 @@ export class DrawingCanvas {
     this.ctx.restore();
   }
 
-  // 背景画像（下絵）の設定
-  setBackgroundImage(imageUrl) {
-    const img = new Image();
-    img.onload = () => {
-      this.backgroundImage = img;
-      this.fitViewToBackgroundImage();
-      console.log(`背景画像読み込み完了: ${img.naturalWidth} x ${img.naturalHeight}`);
-    };
-    img.onerror = (err) => {
-      console.error('背景画像の読み込みに失敗:', err);
-    };
-    img.src = imageUrl;
-  }
-
-  clearBackgroundImage() {
-    this.backgroundImage = null;
-    this.resetBackgroundImageTransform();
-    this.redrawCanvas();
-  }
-
-  setBackgroundImageOpacity(opacity) {
-    this.backgroundImageOpacity = Math.max(0, Math.min(1, opacity));
-    this.redrawCanvas();
-  }
-
-  setBackgroundImageOffset(x, y) {
-    this.backgroundImageOffsetX = x;
-    this.backgroundImageOffsetY = y;
-    this.redrawCanvas();
-  }
-
-  setBackgroundImageScale(scale) {
-    this.backgroundImageScale = Math.max(0.05, Math.min(10, scale));
-    this.redrawCanvas();
-  }
-
-  setBackgroundImageRotation(radians) {
-    this.backgroundImageRotation = radians;
-    this.redrawCanvas();
-  }
-
-  resetBackgroundImageTransform() {
-    this.backgroundImageOffsetX = 0;
-    this.backgroundImageOffsetY = 0;
-    this.backgroundImageScale = 1.0;
-    this.backgroundImageRotation = 0;
-    this.backgroundImageOpacity = 0.4;
-    this.redrawCanvas();
-  }
-
-  // 背景画像が画面に収まるようスケールと位置を調整
-  // 画像は原点(0,0)を中心に描画されるので、原点を画面中央に置けば画像も中央に来る
-  fitViewToBackgroundImage() {
-    if (!this.backgroundImage) return;
-
-    const imgW = this.backgroundImage.naturalWidth;
-    const imgH = this.backgroundImage.naturalHeight;
-    const canvasW = this.canvas.width;
-    const canvasH = this.canvas.height;
-
-    // 画像が90%収まるスケール（余白を確保）
-    const fitScale = Math.min(canvasW / imgW, canvasH / imgH) * 0.9;
-    this.scale = Math.max(this.minScale, Math.min(this.maxScale, fitScale));
-
-    // 原点(0,0)をキャンバス中央に → 画像も中央に来る（十字の交点と画像中心が一致）
-    this.translateX = canvasW / 2;
-    this.translateY = canvasH / 2;
-
-    this.redrawCanvas();
-  }
+  // 背景画像（下絵）の制御メソッド群は canvas/backgroundImage.js に抽出済み
+  // （Object.assign で prototype に注入される）
 
   // デバイスに応じた初期ズームレベルを取得
   getInitialScale() {
@@ -2601,668 +2550,6 @@ export class DrawingCanvas {
     }
   }
 
-  drawSelectionHandles(textBox) {
-    // 現在の描画設定を保存
-    const originalStrokeStyle = this.ctx.strokeStyle;
-    const originalFillStyle = this.ctx.fillStyle;
-    const originalLineWidth = this.ctx.lineWidth;
-    const originalFont = this.ctx.font;
-    const originalTextAlign = this.ctx.textAlign;
-    const originalTextBaseline = this.ctx.textBaseline;
-    
-    // テキストの実際の描画サイズを計算
-    const actualSize = this.calculateActualTextBoxSize(textBox);
-    const handles = this.getResizeHandles(textBox);
-    
-    // 選択枠を描画（薄い紫色）- 実際のテキストサイズで描画
-    this.ctx.strokeStyle = '#8B5CF6';
-    this.ctx.lineWidth = 1;
-    this.ctx.setLineDash([3, 3]);
-    this.ctx.beginPath();
-    this.ctx.rect(textBox.x, textBox.y, actualSize.width, actualSize.height);
-    this.ctx.stroke();
-    this.ctx.setLineDash([]);
-    
-    // 移動エリアを薄く表示（視覚的ガイド）- 実際のテキストサイズに基づく
-    const margin = this.handleSize;
-    const moveAreaX = textBox.x + margin;
-    const moveAreaY = textBox.y + margin;
-    const moveAreaWidth = Math.max(0, actualSize.width - margin * 2);
-    const moveAreaHeight = Math.max(0, actualSize.height - margin * 2);
-    
-    if (moveAreaWidth > 0 && moveAreaHeight > 0) {
-      this.ctx.fillStyle = 'rgba(139, 92, 246, 0.1)';
-      this.ctx.fillRect(moveAreaX, moveAreaY, moveAreaWidth, moveAreaHeight);
-      
-      // 移動アイコンを中央に表示
-      const centerX = textBox.x + textBox.width / 2;
-      const centerY = textBox.y + textBox.height / 2;
-      
-      this.ctx.fillStyle = 'rgba(139, 92, 246, 0.5)';
-      this.ctx.font = '10px Arial';
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText('⊹', centerX, centerY);
-    }
-    
-    // ハンドルを描画（小さくてスタイリッシュに）
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.strokeStyle = '#8B5CF6';
-    this.ctx.lineWidth = 1.5;
-    
-    for (let handleName in handles) {
-      const handle = handles[handleName];
-      
-      // 横方向のリサイズハンドルのみ表示
-      if (handleName === 'w' || handleName === 'e') {
-        // 影の描画
-        this.ctx.save();
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-        this.ctx.fillRect(
-          handle.x - this.handleSize / 2 + 1,
-          handle.y - this.handleSize / 2 + 1,
-          this.handleSize,
-          this.handleSize
-        );
-        this.ctx.restore();
-        
-        // ハンドル本体の描画
-        this.ctx.beginPath();
-        this.ctx.rect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
-        );
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#8B5CF6';
-        this.ctx.stroke();
-        
-        // 中央にドットを追加（操作しやすくするため）
-        this.ctx.beginPath();
-        this.ctx.arc(handle.x, handle.y, 1.5, 0, 2 * Math.PI);
-        this.ctx.fillStyle = '#8B5CF6';
-        this.ctx.fill();
-      }
-    }
-    
-    // 元の描画設定を復元
-    this.ctx.strokeStyle = originalStrokeStyle;
-    this.ctx.fillStyle = originalFillStyle;
-    this.ctx.lineWidth = originalLineWidth;
-    this.ctx.font = originalFont;
-    this.ctx.textAlign = originalTextAlign;
-    this.ctx.textBaseline = originalTextBaseline;
-  }
-
-  drawVerticalText(text, x, y, fontSize) {
-    const chars = text.split('');
-    chars.forEach((char, index) => {
-      this.ctx.fillText(char, x, y + (index * fontSize));
-    });
-  }
-
-  drawTextBoxPreview(start, end) {
-    // テキストボックスのプレビュー枠を描画
-    this.ctx.strokeStyle = '#007AFF';
-    this.ctx.lineWidth = 1;
-    this.ctx.setLineDash([5, 5]);
-    this.ctx.beginPath();
-    
-    const width = end.x - start.x;
-    const height = end.y - start.y;
-    this.ctx.rect(start.x, start.y, width, height);
-    this.ctx.stroke();
-    this.ctx.setLineDash([]); // 点線をリセット
-  }
-
-  createTextBox(start, end) {
-    // テキストボックスを作成
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-    const centerX = (start.x + end.x) / 2;
-    const centerY = (start.y + end.y) / 2;
-    const isVertical = this.currentTool === 'text-vertical';
-    
-    // フォントサイズに基づいた適切なサイズを設定
-    const fontSize = this.fontSize;
-    let actualWidth, actualHeight;
-    
-    if (isVertical) {
-      // 縦書き：3文字分の幅、10文字分の高さ
-      actualWidth = Math.max(width, fontSize * 3);
-      actualHeight = Math.max(height, fontSize * 10);
-    } else {
-      // 横書き：10文字分の幅、1行分の高さ
-      actualWidth = Math.max(width, fontSize * 10);
-      actualHeight = Math.max(height, fontSize * 1.5); // 1行分の高さ
-    }
-    
-    this.createTextBoxAuto(centerX, centerY, actualWidth, actualHeight, isVertical);
-  }
-
-  // 新仕様：自動サイズ・自動配置のテキストボックス生成
-  createTextBoxAuto(centerX, centerY, width, height, isVertical) {
-    
-    // 編集中のテキストボックスがある場合は新しいボックスを作成しない
-    const hasEditingTextBox = this.allPaths.some(path => 
-      path.tool === 'textbox' && path.isSelected
-    );
-    
-    if (hasEditingTextBox || (this.textInput && this.textInput.parentNode)) {
-      console.log('編集中のテキストボックスがあるため、新しいテキストボックスの作成をスキップします');
-      return;
-    }
-    
-    // テキストボックスデータを作成
-    const textBoxData = {
-      tool: 'textbox',
-      x: centerX - width / 2,
-      y: centerY - height / 2,
-      width: width,
-      height: height,
-      text: '',
-      fontSize: this.fontSize,
-      fontFamily: '"Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", Arial, sans-serif',
-      strokeColor: this.strokeColor,
-      isVertical: isVertical,
-      isSelected: true
-    };
-    // 他のテキストボックスの選択を解除
-    this.allPaths.forEach(path => {
-      if (path.tool === 'textbox') {
-        path.isSelected = false;
-      }
-    });
-    this.setSelectedTextBox(textBoxData);
-    this.allPaths.push(textBoxData);
-    this.redoStack = [];
-    this.lastOperationType = 'path'; // テキストボックスもpathとして扱う
-    
-    // アンドゥ/リドゥボタンの状態を更新
-    this.updateUndoRedoButtons();
-    
-    console.log('テキストボックス作成: lastOperationType = path');
-    console.log('作成されたテキストボックス:', textBoxData);
-    console.log('allPaths配列:', this.allPaths);
-    this.redrawCanvas();
-    this.editTextBox(textBoxData);
-  }
-
-  editTextBox(textBoxData) {
-    console.log('=== editTextBox 開始 ===');
-    console.log('textBoxData:', textBoxData);
-    console.log('isVertical:', textBoxData.isVertical);
-    
-    // 他の編集中のテキストボックスがある場合は何もしない
-    const hasOtherEditingTextBox = this.allPaths.some(path => 
-      path.tool === 'textbox' && path.isSelected && path !== textBoxData
-    );
-    
-    if (hasOtherEditingTextBox || (this.textInput && this.textInput.parentNode)) {
-      console.log('他の編集中のテキストボックスがあるため、編集をスキップします');
-      // 新しく作成されたテキストボックスを削除
-      const index = this.allPaths.indexOf(textBoxData);
-      if (index > -1) {
-        this.allPaths.splice(index, 1);
-        console.log('重複テキストボックスを削除');
-        
-        // アンドゥ/リドゥボタンの状態を更新
-        this.updateUndoRedoButtons();
-        
-        this.redrawCanvas();
-      }
-      return;
-    }
-    
-    // 既存のテキスト入力があれば削除
-    this.removeTextInput();
-    
-    const rect = this.canvas.getBoundingClientRect();
-    const container = this.canvas.parentElement;
-    
-    // テキスト入力要素を作成
-    if (textBoxData.isVertical) {
-      // 縦書きの場合もtextareaを使用（改行処理が簡単）
-      this.textInput = document.createElement('textarea');
-      this.textInput.value = textBoxData.text || '';
-      this.textInput.placeholder = '縦書きテキスト';
-    } else {
-      // 横書きの場合はtextareaを使用
-      this.textInput = document.createElement('textarea');
-      this.textInput.value = textBoxData.text;
-      this.textInput.placeholder = '横書きテキスト';
-    }
-    this.textInput.className = 'text-input-overlay';
-    
-    // フォントサイズは指定値をそのまま使う（未設定の場合は現在の選択値を使用）
-    const adjustedFontSize = textBoxData.fontSize || this.fontSize || 48;
-    const padding = Math.max(4, adjustedFontSize * 0.2);
-    // 高DPI対応
-    const dpr = window.devicePixelRatio || 1;
-    // ワールド座標をスクリーン座標に変換
-    const screenX = textBoxData.x * this.scale + this.translateX;
-    const screenY = textBoxData.y * this.scale + this.translateY;
-    const screenWidth = textBoxData.width * this.scale;
-    const screenHeight = textBoxData.height * this.scale;
-    
-    // スタイル設定
-    this.textInput.style.position = 'absolute';
-    
-    if (textBoxData.isVertical) {
-      // 縦書きの場合は左側に配置（3行分の幅を考慮してフォントサイズ×3.0分左にずらす）
-      this.textInput.style.left = `${screenX / dpr + rect.left - container.offsetLeft + padding - adjustedFontSize * 3.0}px`;
-      this.textInput.style.top = `${screenY / dpr + rect.top - container.offsetTop + padding}px`;
-    } else {
-      // 横書きの場合は通常の位置
-      this.textInput.style.left = `${screenX / dpr + rect.left - container.offsetLeft + padding}px`;
-      this.textInput.style.top = `${screenY / dpr + rect.top - container.offsetTop + padding}px`;
-    }
-    // iPad等タッチ端末では最小サイズを大きめに
-    if (textBoxData.isVertical) {
-      // 縦書きの場合：3行分の幅を確保
-      const minW = Math.max(adjustedFontSize * 3.5, 80);
-      const minH = Math.max(adjustedFontSize * 10, 250);
-      this.textInput.style.width = `${minW}px`;
-      this.textInput.style.height = `${minH}px`;
-    } else {
-      // 横書きの場合
-      const minW = Math.max(80, screenWidth - padding * 2, adjustedFontSize * 10);
-      const minH = Math.max(40, screenHeight / dpr - padding * 2, adjustedFontSize * 2);
-      this.textInput.style.width = `${minW}px`;
-      this.textInput.style.height = `${minH}px`;
-    }
-    this.textInput.style.fontSize = `${adjustedFontSize / dpr}px`;
-    this.textInput.style.fontFamily = textBoxData.fontFamily;
-    this.textInput.style.color = textBoxData.strokeColor;
-    this.textInput.style.background = 'rgba(255, 255, 255, 0.8)'; // より透明にして背景が見えるように
-    this.textInput.style.border = '2px solid #007AFF';
-    this.textInput.style.borderRadius = '4px';
-    
-    // 縦書きの場合は writing-mode を設定
-    if (textBoxData.isVertical) {
-      this.textInput.style.writingMode = 'vertical-rl';
-      this.textInput.style.textOrientation = 'upright';
-    } else {
-      this.textInput.style.writingMode = 'horizontal-tb';
-      this.textInput.style.textOrientation = 'mixed';
-    }
-    this.textInput.style.padding = '2px';
-    this.textInput.style.resize = 'none';
-    this.textInput.style.zIndex = '1000';
-    this.textInput.style.overflow = 'hidden';
-    this.textInput.style.boxSizing = 'border-box';
-    this.textInput.style.lineHeight = '1.3';
-    this.textInput.style.cursor = 'text';
-    
-    if (textBoxData.isVertical) {
-      console.log('縦書きテキストボックス編集 - 縦書きスタイルを適用');
-      // CSSクラスを追加
-      this.textInput.classList.add('vertical');
-      this.textInput.classList.remove('horizontal');
-      
-      // iPad/Safari対応のため複数の縦書きプロパティを設定
-      this.textInput.style.setProperty('writing-mode', 'vertical-rl', 'important');
-      this.textInput.style.setProperty('-webkit-writing-mode', 'vertical-rl', 'important');
-      this.textInput.style.setProperty('-ms-writing-mode', 'tb-rl', 'important');
-      this.textInput.style.setProperty('text-orientation', 'upright', 'important');
-      this.textInput.style.setProperty('-webkit-text-orientation', 'upright', 'important');
-      this.textInput.style.setProperty('direction', 'ltr', 'important');
-      
-      // 縦書き用のサイズ調整
-      this.textInput.style.minWidth = '40px';
-      this.textInput.style.minHeight = '80px';
-      
-      // iPad専用の追加設定
-      this.textInput.setAttribute('dir', 'ltr');
-    } else {
-      console.log('横書きテキストボックス編集 - 横書きスタイルを適用');
-      // CSSクラスを追加
-      this.textInput.classList.add('horizontal');
-      this.textInput.classList.remove('vertical');
-      
-      // 横書きの場合は縦書きスタイルをリセット
-      this.textInput.style.setProperty('writing-mode', 'horizontal-tb', 'important');
-      this.textInput.style.setProperty('-webkit-writing-mode', 'horizontal-tb', 'important');
-      this.textInput.style.setProperty('-ms-writing-mode', 'lr-tb', 'important');
-      this.textInput.style.setProperty('text-orientation', 'mixed', 'important');
-      this.textInput.style.setProperty('-webkit-text-orientation', 'mixed', 'important');
-      this.textInput.style.setProperty('direction', 'ltr', 'important');
-      
-      this.textInput.removeAttribute('dir');
-    }
-    
-    // 現在編集中のテキストボックスを保存
-    this.selectedTextBox = textBoxData;
-    this.currentTextBox = textBoxData;
-    
-    // イベントリスナー
-    this.textInput.addEventListener('blur', () => this.finishTextBoxEdit());
-    this.textInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        this.cancelTextBoxEdit();
-      } else if (e.key === 'Enter' && e.ctrlKey) {
-        // Ctrl+Enterで入力完了（縦書き・横書き共通）
-        e.preventDefault();
-        this.finishTextBoxEdit();
-      }
-      // 通常のEnterキーは改行として処理（preventDefault不要）
-    });
-    
-    // テキスト入力時の自動サイズ調整
-    this.textInput.addEventListener('input', () => {
-      this.adjustTextBoxSize(textBoxData);
-    });
-    
-    container.appendChild(this.textInput);
-    
-    console.log('=== テキスト入力要素のスタイル確認 ===');
-    console.log('writingMode:', this.textInput.style.writingMode);
-    console.log('textOrientation:', this.textInput.style.textOrientation);
-    console.log('isVertical:', textBoxData.isVertical);
-    
-    // フォーカスを設定
-    setTimeout(() => {
-      this.textInput.focus();
-      // カーソルスタイルを確実に設定
-      this.textInput.style.cursor = 'text';
-      // textareaとdivで選択方法を分ける
-      if (this.textInput.select) {
-        this.textInput.select(); // textarea用
-      } else {
-        // contenteditable div用
-        const range = document.createRange();
-        range.selectNodeContents(this.textInput);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }, 10);
-  }
-
-  // テキストボックスのサイズを内容に応じて自動調整
-  adjustTextBoxSize(textBoxData) {
-    if (!this.textInput) return;
-    
-    const text = this.textInput.value;
-    const lines = text.split('\n');
-    const adjustedFontSize = textBoxData.fontSize;
-    const dpr = window.devicePixelRatio || 1;
-    
-    if (textBoxData.isVertical) {
-      // 縦書きの場合：列数に応じて幅を調整
-      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
-      const newWidth = Math.max(adjustedFontSize * 3.5, adjustedFontSize * (maxLineLength + 1));
-      this.textInput.style.width = `${newWidth}px`;
-      
-      // テキストボックスデータも更新
-      textBoxData.width = newWidth * dpr;
-    } else {
-      // 横書きの場合：行数に応じて高さを調整
-      const lineCount = Math.max(lines.length, 1);
-      const lineHeight = adjustedFontSize * 1.3; // line-height: 1.3 に合わせる
-      const newHeight = Math.max(adjustedFontSize * 1.5, lineHeight * lineCount + 8); // padding分を考慮
-      this.textInput.style.height = `${newHeight / dpr}px`;
-      
-      // テキストボックスデータも更新
-      textBoxData.height = newHeight;
-    }
-    
-    // キャンバスを再描画してボックスサイズを更新
-    this.redrawCanvas();
-  }
-
-  finishTextBoxEdit() {
-    if (!this.textInput || !this.selectedTextBox) return;
-    
-    // textareaから値を取得
-    const text = this.textInput.value.trim();
-    this.selectedTextBox.text = text;
-    
-    this.removeTextInput();
-    this.selectedTextBox = null;
-    this.currentTextBox = null;
-    this.redrawCanvas();
-  }
-
-  cancelTextBoxEdit() {
-    if (!this.selectedTextBox) return;
-    
-    // テキストが空の場合、テキストボックスを削除
-    if (!this.selectedTextBox.text.trim()) {
-      const index = this.allPaths.indexOf(this.selectedTextBox);
-      if (index > -1) {
-        this.allPaths.splice(index, 1);
-        
-        // アンドゥ/リドゥボタンの状態を更新
-        this.updateUndoRedoButtons();
-      }
-    }
-    
-    this.removeTextInput();
-    this.selectedTextBox = null;
-    this.currentTextBox = null;
-    this.redrawCanvas();
-  }
-
-  drawFillPath(pathData) {
-    // 塗りつぶしの描画
-    const pattern = pathData.fillPattern || 'solid';
-    if (pathData.positions) {
-      // 新形式：複数位置
-      pathData.positions.forEach(pos => {
-        const posPattern = pos.pattern || pattern;
-        if (posPattern === 'diagonal') {
-          // 現在の変換行列を取得
-          const transform = this.ctx.getTransform();
-          
-          // ワールド座標をスクリーン座標に変換
-          const screenX = pos.x * transform.a + transform.e;
-          const screenY = pos.y * transform.d + transform.f;
-          const screenSize = pos.size * transform.a;
-          
-          // 一時的に変換をリセットして物理座標で描画
-          this.ctx.save();
-          this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-          
-          this.ctx.strokeStyle = pathData.strokeColor;
-          this.ctx.lineWidth = 2;
-          const spacing = 16;
-          
-          // 背景に薄い色を塗る
-          this.ctx.fillStyle = pathData.strokeColor + '20'; // 透明度12.5%
-          this.ctx.fillRect(screenX, screenY, screenSize, screenSize);
-          
-          // クリッピング領域を設定（正方形内だけに描画）
-          this.ctx.beginPath();
-          this.ctx.rect(screenX, screenY, screenSize, screenSize);
-          this.ctx.clip();
-          
-          // 斜線を描画
-          this.ctx.beginPath();
-          for (let offset = -screenSize; offset < screenSize * 2; offset += spacing) {
-            this.ctx.moveTo(screenX + offset, screenY);
-            this.ctx.lineTo(screenX + offset + screenSize, screenY + screenSize);
-          }
-          this.ctx.stroke();
-          
-          // 枠線を描画（クリッピング適用後）
-          this.ctx.strokeStyle = pathData.strokeColor;
-          this.ctx.lineWidth = 2;
-          this.ctx.strokeRect(screenX, screenY, screenSize, screenSize);
-          
-          // 変換を元に戻す（1回だけrestore）
-          this.ctx.restore();
-        } else {
-          this.ctx.fillStyle = pathData.strokeColor;
-          this.ctx.fillRect(pos.x, pos.y, pos.size, pos.size);
-        }
-      });
-    } else if (pathData.startPoint) {
-      // 旧形式：単一位置（後方互換性）
-      this.ctx.fillStyle = pathData.strokeColor;
-      this.ctx.fillRect(pathData.startPoint.x, pathData.startPoint.y, pathData.size, pathData.size);
-    }
-  }
-
-  drawTextBox(textBoxData) {
-    
-    // テキストボックスの枠線を描画
-    this.ctx.strokeStyle = '#CCCCCC';
-    this.ctx.lineWidth = 1;
-    let { x, y, width, height, text, fontSize, fontFamily, strokeColor, isVertical } = textBoxData;
-    // フォントサイズはズーム倍率を掛けず、図面上のサイズで描画
-    this.ctx.font = `${fontSize}px ${fontFamily}`;
-
-    // 折り返し判定も元の幅で行う
-    const boxWidth = width;
-    const boxHeight = height;
-    const padding = Math.max(4, fontSize * 0.2);
-    const lineHeight = fontSize * 1.3;
-
-    // テキストサイズを計算し、必要ならボックスを拡張
-    if (text && text.trim()) {
-      this.ctx.fillStyle = strokeColor;
-      if (isVertical) {
-        // 縦書き：改行を処理して列ごとに文字を配置
-        const inputLines = text.split('\n'); // 改行で分割
-        let maxLineLength = 0;
-        let totalColumns = inputLines.length;
-        
-        for (let inputLine of inputLines) {
-          maxLineLength = Math.max(maxLineLength, inputLine.length);
-        }
-        
-        const textHeight = maxLineLength * fontSize + padding * 2;
-        const textWidth = totalColumns * fontSize * 1.2 + padding * 2;
-        if (height < textHeight) height = textHeight;
-        if (width < textWidth) width = textWidth;
-      } else {
-        // 横書き：改行と自動折り返しを処理
-        const inputLines = text.split('\n'); // 改行で分割
-        let allLines = [];
-        let maxLineWidth = 0;
-        
-        for (let inputLine of inputLines) {
-          if (inputLine === '') {
-            // 空行の場合はそのまま追加
-            allLines.push('');
-            continue;
-          }
-          
-          // 各行について自動折り返しを適用
-          const chars = inputLine.split('');
-          let line = '';
-          for (let char of chars) {
-            const testLine = line + char;
-            const metrics = this.ctx.measureText(testLine);
-            if (metrics.width > boxWidth - padding * 2 && line !== '') {
-              allLines.push(line);
-              maxLineWidth = Math.max(maxLineWidth, this.ctx.measureText(line).width);
-              line = char;
-            } else {
-              line = testLine;
-            }
-          }
-          if (line) {
-            allLines.push(line);
-            maxLineWidth = Math.max(maxLineWidth, this.ctx.measureText(line).width);
-          }
-        }
-        
-        const textHeight = allLines.length * lineHeight + padding * 2;
-        if (height < textHeight) height = textHeight;
-        if (width < maxLineWidth + padding * 2) width = maxLineWidth + padding * 2;
-      }
-    }
-    // ボックスを描画
-    this.ctx.beginPath();
-    this.ctx.rect(x, y, width, height);
-    console.log('テキストボックス枠を描画:', { x, y, width, height });
-    this.ctx.stroke();
-    // テキストを描画
-    if (text && text.trim()) {
-      this.ctx.fillStyle = strokeColor;
-      if (isVertical) {
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        
-        // 縦書き：改行を処理して列ごとに文字を配置（完全中央配置）
-        const inputLines = text.split('\n');
-        const totalColumns = inputLines.length;
-        const columnSpacing = fontSize * 1.2;
-        const totalTextWidth = totalColumns * columnSpacing;
-        
-        // 最長の列の文字数を取得
-        const maxLineLength = Math.max(...inputLines.map(line => line.length));
-        const totalTextHeight = maxLineLength * fontSize;
-        
-        // 完全中央配置のための開始座標を計算
-        const centerX = x + width / 2;
-        const centerY = y + height / 2;
-        const startX = centerX + (totalTextWidth - columnSpacing) / 2; // 右端から開始
-        const startY = centerY - totalTextHeight / 2;
-        
-        inputLines.forEach((line, columnIndex) => {
-          const chars = line.split('');
-          const columnX = startX - (columnIndex * columnSpacing); // 右から左に配置
-          
-          chars.forEach((char, charIndex) => {
-            const yy = startY + (charIndex * fontSize) + fontSize / 2;
-            this.ctx.fillText(char, columnX, yy);
-          });
-        });
-      } else {
-        // 横テキスト：プリセットテキストは中央揃え、通常テキストは左揃え
-        const isPreset = textBoxData.isPreset || false;
-        this.ctx.textAlign = isPreset ? 'center' : 'left';
-        this.ctx.textBaseline = 'middle'; // 中央ベースラインに変更
-        
-        // 改行と自動折り返しを処理
-        const inputLines = text.split('\n'); // 改行で分割
-        let allLines = [];
-        
-        for (let inputLine of inputLines) {
-          if (inputLine === '') {
-            // 空行の場合はそのまま追加
-            allLines.push('');
-            continue;
-          }
-          
-          // 各行について自動折り返しを適用
-          const chars = inputLine.split('');
-          let line = '';
-          for (let char of chars) {
-            const testLine = line + char;
-            const metrics = this.ctx.measureText(testLine);
-            if (metrics.width > width - padding * 2 && line !== '') {
-              allLines.push(line);
-              line = char;
-            } else {
-              line = testLine;
-            }
-          }
-          if (line) {
-            allLines.push(line);
-          }
-        }
-        
-        // 各行を描画（プリセットは中央揃え、通常は左揃え）
-        const totalTextHeight = allLines.length * lineHeight;
-        const startY = y + (height - totalTextHeight) / 2 + lineHeight / 2; // textBaseline='middle'に合わせて調整
-        
-        allLines.forEach((lineText, index) => {
-          const xx = isPreset ? x + width / 2 : x + padding; // プリセットは中央、通常は左端
-          const yy = startY + (index * lineHeight);
-          this.ctx.fillText(lineText, xx, yy);
-        });
-      }
-      this.ctx.textAlign = 'start';
-      this.ctx.textBaseline = 'alphabetic';
-    }
-  }
-
   handleSelection(event) {
     console.log('handleSelection called');
     const coords = this.getCoordinates(event);
@@ -3305,330 +2592,6 @@ export class DrawingCanvas {
       this.selectedTextBox = null;
       this.redrawCanvas();
     }
-  }
-
-  getTextBoxAt(coords) {
-    // allPathsを逆順で検索（最後に描いたものが優先）
-    for (let i = this.allPaths.length - 1; i >= 0; i--) {
-      const pathData = this.allPaths[i];
-      if (pathData.tool === 'textbox' && this.isPointInTextBox(coords, pathData)) {
-        return pathData;
-      }
-    }
-    return null;
-  }
-
-  isPointInTextBox(coords, textBox) {
-    // テキストの実際の描画サイズを計算
-    const actualSize = this.calculateActualTextBoxSize(textBox);
-    
-    return coords.x >= textBox.x && 
-           coords.x <= textBox.x + actualSize.width &&
-           coords.y >= textBox.y && 
-           coords.y <= textBox.y + actualSize.height;
-  }
-
-  // テキストボックスの実際の描画サイズを計算
-  calculateActualTextBoxSize(textBox) {
-    if (!textBox.text || !textBox.text.trim()) {
-      return { width: textBox.width, height: textBox.height };
-    }
-
-    // 一時的にフォントを設定
-    const originalFont = this.ctx.font;
-    this.ctx.font = `${textBox.fontSize}px ${textBox.fontFamily || 'Arial'}`;
-    
-    let { width, height, fontSize, isVertical, text } = textBox;
-    const padding = Math.max(4, fontSize * 0.2);
-    const lineHeight = fontSize * 1.3;
-
-    if (isVertical) {
-      // 縦書き：改行を処理して列ごとに文字を配置
-      const inputLines = text.split('\n');
-      let maxLineLength = 0;
-      let totalColumns = inputLines.length;
-      
-      for (let inputLine of inputLines) {
-        maxLineLength = Math.max(maxLineLength, inputLine.length);
-      }
-      
-      const textHeight = maxLineLength * fontSize + padding * 2;
-      const textWidth = totalColumns * fontSize * 1.2 + padding * 2;
-      height = Math.max(height, textHeight);
-      width = Math.max(width, textWidth);
-    } else {
-      // 横書き：改行と自動折り返しを処理
-      const inputLines = text.split('\n');
-      let allLines = [];
-      let maxLineWidth = 0;
-      
-      // まず、各行の自然な幅を測定（折り返しなし）
-      for (let inputLine of inputLines) {
-        if (inputLine === '') {
-          allLines.push('');
-          continue;
-        }
-        
-        // 行の自然な幅を測定
-        const naturalLineWidth = this.ctx.measureText(inputLine).width;
-        maxLineWidth = Math.max(maxLineWidth, naturalLineWidth);
-        
-        // 現在のテキストボックス幅での折り返しも計算
-        const chars = inputLine.split('');
-        let line = '';
-        for (let char of chars) {
-          const testLine = line + char;
-          const metrics = this.ctx.measureText(testLine);
-          if (metrics.width > width - padding * 2 && line !== '') {
-            allLines.push(line);
-            line = char;
-          } else {
-            line = testLine;
-          }
-        }
-        if (line) {
-          allLines.push(line);
-        }
-      }
-      
-      const textHeight = allLines.length * lineHeight + padding * 2;
-      height = Math.max(height, textHeight);
-      
-      // 自然な最大行幅に基づいて幅を決定（折り返しを最小限に）
-      const naturalRequiredWidth = maxLineWidth + padding * 2;
-      width = Math.max(width, naturalRequiredWidth);
-    }
-
-    // フォントを元に戻す
-    this.ctx.font = originalFont;
-    
-    return { width, height };
-  }
-
-  // テキストボックスの中央移動エリアをチェック
-  isPointInMoveArea(coords, textBox) {
-    // テキストの実際の描画サイズを計算
-    const actualSize = this.calculateActualTextBoxSize(textBox);
-    
-    // リサイズハンドルを除いた中央エリアを移動エリアとする
-    const margin = this.handleSize; // ハンドルサイズ分の余白
-    const moveAreaX = textBox.x + margin;
-    const moveAreaY = textBox.y + margin;
-    const moveAreaWidth = Math.max(0, actualSize.width - margin * 2);
-    const moveAreaHeight = Math.max(0, actualSize.height - margin * 2);
-    
-    const isInMoveArea = coords.x >= moveAreaX && 
-                        coords.x <= moveAreaX + moveAreaWidth &&
-                        coords.y >= moveAreaY && 
-                        coords.y <= moveAreaY + moveAreaHeight;
-    
-    console.log('移動エリア判定:', {
-      coords: coords,
-      moveArea: { x: moveAreaX, y: moveAreaY, width: moveAreaWidth, height: moveAreaHeight },
-      actualSize: actualSize,
-      isInMoveArea: isInMoveArea
-    });
-    
-    return isInMoveArea;
-  }
-
-  getResizeHandle(coords, textBox) {
-    const handles = this.getResizeHandles(textBox);
-    // タッチデバイスを考慮した検出範囲
-    const detectionSize = this.handleSize * 2.5;
-    
-    console.log('ハンドル検出試行:', {
-      coords: coords,
-      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height },
-      detectionSize: detectionSize
-    });
-    
-    // 横方向のハンドルのみを検出対象とする
-    const handlePriority = ['w', 'e'];
-    
-    for (let handleName of handlePriority) {
-      const handle = handles[handleName];
-      
-      // 四角形の検出範囲を使用（より直感的）
-      const halfSize = detectionSize / 2;
-      const isInRange = coords.x >= handle.x - halfSize && 
-                       coords.x <= handle.x + halfSize &&
-                       coords.y >= handle.y - halfSize && 
-                       coords.y <= handle.y + halfSize;
-      
-      console.log(`ハンドル${handleName}検出:`, {
-        handle: handle,
-        range: {
-          left: handle.x - halfSize,
-          right: handle.x + halfSize,
-          top: handle.y - halfSize,
-          bottom: handle.y + halfSize
-        },
-        isInRange: isInRange
-      });
-      
-      if (isInRange) {
-        console.log('✅ ハンドル検出成功:', handleName);
-        return handleName;
-      }
-    }
-    
-    console.log('❌ ハンドル検出失敗');
-    return null;
-  }
-
-  resizeTextBox(textBox, handle, coords) {
-    console.log('🔄 リサイズ実行:', { 
-      handle, 
-      coords, 
-      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height } 
-    });
-
-    const minWidth = Math.max(30, this.fontSize * 3);
-    const minHeight = Math.max(20, this.fontSize * 2);
-
-    let newWidth = textBox.width;
-    let newHeight = textBox.height;
-
-    const oldValues = {
-      x: textBox.x,
-      y: textBox.y,
-      width: textBox.width,
-      height: textBox.height
-    };
-
-    switch (handle) {
-      case 'w': // 左中央
-        newWidth = textBox.width + (textBox.x - coords.x);
-        if (newWidth >= minWidth) {
-          textBox.width = newWidth;
-          textBox.x = coords.x;
-        }
-        break;
-      case 'e': // 右中央
-        newWidth = coords.x - textBox.x;
-        if (newWidth >= minWidth) {
-          textBox.width = newWidth;
-        }
-        break;
-    }
-
-    console.log('✅ リサイズ完了:', {
-      handle,
-      coords,
-      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height }
-    });
-
-    this.redrawCanvas();
-  }
-
-  updateCursorForPosition(event) {
-    const coords = this.getCoordinates(event);
-    
-    // まず、選択中のテキストボックスのハンドルをチェック（最優先）
-    if (this.selectedTextBox) {
-      const handle = this.getResizeHandle(coords, this.selectedTextBox);
-      if (handle) {
-        // ハンドルの種類に応じてカーソルを変更
-        switch (handle) {
-          case 'nw':
-          case 'se':
-            this.canvas.style.cursor = 'nw-resize';
-            break;
-          case 'ne':
-          case 'sw':
-            this.canvas.style.cursor = 'ne-resize';
-            break;
-          case 'n':
-          case 's':
-            this.canvas.style.cursor = 'ns-resize';
-            break;
-          case 'w':
-          case 'e':
-            this.canvas.style.cursor = 'ew-resize';
-            break;
-          default:
-            this.canvas.style.cursor = 'default';
-        }
-        return;
-      }
-      
-      // テキストボックス内かチェック
-      if (this.isPointInTextBox(coords, this.selectedTextBox)) {
-        // 移動エリアかリサイズエリアかで分ける
-        if (this.isPointInMoveArea(coords, this.selectedTextBox)) {
-          this.canvas.style.cursor = 'move';
-        } else {
-          this.canvas.style.cursor = 'grab';
-        }
-        return;
-      }
-    }
-    
-    // 他のテキストボックスのハンドルをチェック
-    for (let i = this.allPaths.length - 1; i >= 0; i--) {
-      const pathData = this.allPaths[i];
-      if (pathData.tool === 'textbox') {
-        const handle = this.getResizeHandle(coords, pathData);
-        if (handle) {
-          switch (handle) {
-            case 'nw':
-            case 'se':
-              this.canvas.style.cursor = 'nw-resize';
-              break;
-            case 'ne':
-            case 'sw':
-              this.canvas.style.cursor = 'ne-resize';
-              break;
-            case 'n':
-            case 's':
-              this.canvas.style.cursor = 'ns-resize';
-              break;
-            case 'w':
-            case 'e':
-              this.canvas.style.cursor = 'ew-resize';
-              break;
-            default:
-              this.canvas.style.cursor = 'default';
-          }
-          return;
-        }
-        
-        // テキストボックス内でもカーソルを変更
-        if (this.isPointInTextBox(coords, pathData)) {
-          if (this.isPointInMoveArea(coords, pathData)) {
-            this.canvas.style.cursor = 'move';
-          } else {
-            this.canvas.style.cursor = 'pointer';
-          }
-          return;
-        }
-      }
-    }
-    
-    // デフォルトカーソル
-    this.updateCursor();
-  }
-
-  getResizeHandles(textBox) {
-    // テキストの実際の描画サイズを計算
-    const actualSize = this.calculateActualTextBoxSize(textBox);
-    
-    const x = textBox.x;
-    const y = textBox.y;
-    const w = actualSize.width;
-    const h = actualSize.height;
-    
-    return {
-      'nw': { x: x, y: y },           // 左上
-      'ne': { x: x + w, y: y },       // 右上
-      'sw': { x: x, y: y + h },       // 左下
-      'se': { x: x + w, y: y + h },   // 右下
-      'n': { x: x + w/2, y: y },      // 上中央
-      's': { x: x + w/2, y: y + h },  // 下中央
-      'w': { x: x, y: y + h/2 },      // 左中央
-      'e': { x: x + w, y: y + h/2 }   // 右中央
-    };
   }
 
   handleSelectDrag(event) {
@@ -3695,35 +2658,6 @@ export class DrawingCanvas {
       }
       
       this.redrawCanvas();
-    }
-  }
-
-  setSelectedTextBox(textBox) {
-    // 前の選択を解除
-    if (this.selectedTextBox) {
-      this.selectedTextBox.isSelected = false;
-      this.emit('textBoxDeselected');
-    }
-    
-    // 新しい選択を設定
-    this.selectedTextBox = textBox;
-    if (textBox) {
-      textBox.isSelected = true;
-      this.emit('textBoxSelected', textBox);
-    }
-  }
-
-  clearTextBoxSelection() {
-    // すべてのテキストボックスの選択状態をクリア
-    this.allPaths.forEach(path => {
-      if (path.tool === 'textbox') {
-        path.isSelected = false;
-      }
-    });
-    
-    if (this.selectedTextBox) {
-      this.selectedTextBox = null;
-      this.emit('textBoxDeselected');
     }
   }
 
@@ -3837,775 +2771,6 @@ export class DrawingCanvas {
 
   setSnapToGrid(enabled) {
     this.snapToGrid = enabled;
-  }
-
-  createTextInput(coords) {
-    console.log('createTextInput開始:', coords, 'ツール:', this.currentTool);
-    // 既存のテキスト入力があれば削除
-    this.removeTextInput();
-    
-    const rect = this.canvas.getBoundingClientRect();
-    const container = this.canvas.parentElement;
-    console.log('container:', container, 'rect:', rect);
-    
-    // スタイル設定
-    const isVertical = this.currentTool === 'text-vertical';
-    
-    // テキスト入力要素を作成
-    if (isVertical) {
-      // 縦書きの場合はdivを使用（iPad対応）
-      this.textInput = document.createElement('div');
-      this.textInput.contentEditable = true;
-      this.textInput.setAttribute('role', 'textbox');
-      this.textInput.setAttribute('aria-multiline', 'true');
-    } else {
-      // 横書きの場合はtextareaを使用
-      this.textInput = document.createElement('textarea');
-    }
-    this.textInput.className = 'text-input-overlay';
-    this.textInput.style.position = 'absolute';
-    this.textInput.style.cursor = 'text';
-    
-    // 縦書きの場合は座標を調整
-    if (isVertical) {
-      // 縦書きテキストは入力エリアを3行分の幅を考慮して左にずらして配置
-      this.textInput.style.left = `${coords.x + rect.left - container.offsetLeft - this.fontSize * 3.0}px`;
-      this.textInput.style.top = `${coords.y + rect.top - container.offsetTop}px`;
-    } else {
-      this.textInput.style.left = `${coords.x + rect.left - container.offsetLeft}px`;
-      this.textInput.style.top = `${coords.y + rect.top - container.offsetTop}px`;
-    }
-    
-    this.textInput.style.fontSize = `${this.fontSize}px`;
-    this.textInput.style.fontFamily = 'Arial, sans-serif';
-    this.textInput.style.color = this.strokeColor;
-    this.textInput.style.background = 'rgba(255, 255, 255, 0.8)'; // より透明にして背景が見えるように
-    this.textInput.style.border = '2px solid #007AFF';
-    this.textInput.style.borderRadius = '4px';
-    this.textInput.style.padding = '4px';
-    this.textInput.style.resize = 'none';
-    this.textInput.style.zIndex = '1000';
-    
-    // 縦書きと横書きでサイズを調整
-    if (isVertical) {
-      // 縦書きの場合：3行分の幅を確保
-      this.textInput.style.minWidth = `${this.fontSize * 3.5}px`;
-      this.textInput.style.minHeight = `${this.fontSize * 10}px`;
-      this.textInput.style.width = `${this.fontSize * 3.5}px`;
-      this.textInput.style.height = `${this.fontSize * 10}px`;
-    } else {
-      this.textInput.style.minWidth = '50px';
-      this.textInput.style.minHeight = '20px';
-    }
-    
-    this.textInput.style.display = 'block';
-    this.textInput.style.visibility = 'visible';
-    this.textInput.style.opacity = '1';
-    
-    if (isVertical) {
-      // CSSクラスを追加
-      this.textInput.classList.add('vertical');
-      this.textInput.classList.remove('horizontal');
-      
-      // iPad/Safari対応のため複数の縦書きプロパティを設定
-      this.textInput.style.setProperty('writing-mode', 'vertical-rl', 'important');
-      this.textInput.style.setProperty('-webkit-writing-mode', 'vertical-rl', 'important');
-      this.textInput.style.setProperty('-ms-writing-mode', 'tb-rl', 'important');
-      this.textInput.style.setProperty('text-orientation', 'upright', 'important');
-      this.textInput.style.setProperty('-webkit-text-orientation', 'upright', 'important');
-      this.textInput.style.setProperty('direction', 'ltr', 'important');
-      
-      this.textInput.style.minWidth = '20px';
-      this.textInput.style.minHeight = '50px';
-      
-      // iPad専用の追加設定
-      this.textInput.setAttribute('dir', 'ltr');
-    } else {
-      // CSSクラスを追加
-      this.textInput.classList.add('horizontal');
-      this.textInput.classList.remove('vertical');
-      
-      // 横書きの場合は縦書きスタイルをリセット
-      this.textInput.style.setProperty('writing-mode', 'horizontal-tb', 'important');
-      this.textInput.style.setProperty('-webkit-writing-mode', 'horizontal-tb', 'important');
-      this.textInput.style.setProperty('-ms-writing-mode', 'lr-tb', 'important');
-      this.textInput.style.setProperty('text-orientation', 'mixed', 'important');
-      this.textInput.style.setProperty('-webkit-text-orientation', 'mixed', 'important');
-      this.textInput.style.setProperty('direction', 'ltr', 'important');
-      
-      this.textInput.removeAttribute('dir');
-    }
-    
-    this.textInput.placeholder = isVertical ? '縦書きテキスト' : '横書きテキスト';
-    
-    // イベントリスナー
-    this.textInput.addEventListener('blur', () => this.finishTextInput());
-    
-    this.textInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        this.removeTextInput();
-      } else if (e.key === 'Enter') {
-        if (isVertical && this.textInput.contentEditable) {
-          // 縦書きcontenteditable divの場合
-          if (e.ctrlKey) {
-            // Ctrl+Enterで入力完了
-            e.preventDefault();
-            this.finishTextInput();
-          } else {
-            // 通常のEnterで改行を挿入
-            e.preventDefault();
-            const selection = window.getSelection();
-            const range = selection.getRangeAt(0);
-            const br = document.createElement('br');
-            range.deleteContents();
-            range.insertNode(br);
-            range.setStartAfter(br);
-            range.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        } else if (isVertical) {
-          // 縦書きtextareaの場合は通常のEnterで改行を許可
-          if (e.ctrlKey) {
-            // Ctrl+Enterで入力完了
-            e.preventDefault();
-            this.finishTextInput();
-          }
-        } else {
-          // 横書きの場合はCtrl+Enterで入力完了
-          if (e.ctrlKey) {
-            e.preventDefault();
-            this.finishTextInput();
-          }
-        }
-      }
-    });
-    
-    container.appendChild(this.textInput);
-    console.log('テキスト入力要素をDOMに追加しました:', this.textInput);
-    console.log('要素のスタイル:', {
-      position: this.textInput.style.position,
-      left: this.textInput.style.left,
-      top: this.textInput.style.top,
-      zIndex: this.textInput.style.zIndex,
-      display: this.textInput.style.display,
-      visibility: this.textInput.style.visibility
-    });
-    
-    // レンダリング後にフォーカスを設定
-    setTimeout(() => {
-      this.textInput.focus();
-      // カーソルスタイルを確実に設定
-      this.textInput.style.cursor = 'text';
-      console.log('フォーカスを設定しました。縦書き:', isVertical);
-    }, 10);
-  }
-
-  finishTextInput() {
-    console.log('=== finishTextInput が呼ばれました ===');
-    console.log('テキスト入力状態:', {
-      textInput: this.textInput,
-      parentNode: this.textInput ? this.textInput.parentNode : null,
-      allPathsCount: this.allPaths.length
-    });
-    
-    if (!this.textInput || !this.textInput.parentNode) {
-      console.log('テキスト入力が存在しないため、処理をスキップします');
-      return;
-    }
-    
-    // テキストを取得（divとtextareaの両方に対応）
-    let text;
-    if (this.textInput.value !== undefined) {
-      // textareaの場合
-      text = this.textInput.value.trim();
-    } else {
-      // contenteditable divの場合
-      // まずinnerHTMLを取得して<br>タグを改行文字に変換
-      let htmlContent = this.textInput.innerHTML;
-      // <br>タグを改行文字に変換
-      htmlContent = htmlContent.replace(/<br\s*\/?>/gi, '\n');
-      // HTMLタグを除去
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = htmlContent;
-      text = (tempDiv.textContent || tempDiv.innerText || '').trim();
-    }
-    
-    // 現在編集中のテキストボックスを探す
-    const editingTextBox = this.allPaths.find(path => 
-      path.tool === 'textbox' && path.isSelected
-    );
-    
-    if (editingTextBox) {
-      // 既存のテキストボックスを更新
-      editingTextBox.text = text;
-      console.log('=== テキストボックス更新 ===');
-      console.log('テキスト:', text);
-      console.log('テキストボックス:', editingTextBox);
-      
-      // 空のテキストの場合は削除
-      if (!text) {
-        const index = this.allPaths.indexOf(editingTextBox);
-        if (index > -1) {
-          this.allPaths.splice(index, 1);
-          console.log('空のテキストボックスを削除');
-          
-          // アンドゥ/リドゥボタンの状態を更新
-          this.updateUndoRedoButtons();
-        }
-        this.selectedTextBox = null;
-      } else {
-        // テキストボックスのサイズを内容に合わせて調整
-        this.adjustTextBoxSize(editingTextBox);
-        // 編集完了後は選択解除
-        editingTextBox.isSelected = false;
-        this.selectedTextBox = null;
-      }
-      
-      this.redrawCanvas();
-    }
-    
-    this.removeTextInput();
-  }
-
-  adjustTextBoxSize(textBoxData) {
-    // テキストの実際のサイズを測定
-    this.ctx.font = `${textBoxData.fontSize}px ${textBoxData.fontFamily}`;
-    
-    if (textBoxData.isVertical) {
-      // 縦書きの場合 - 改行を正しく処理
-      const inputLines = textBoxData.text.split('\n');
-      let maxLineLength = 0;
-      let totalColumns = inputLines.length;
-      
-      for (let inputLine of inputLines) {
-        maxLineLength = Math.max(maxLineLength, inputLine.length);
-      }
-      
-      textBoxData.width = Math.max(totalColumns * textBoxData.fontSize * 1.2, 30);
-      textBoxData.height = Math.max(maxLineLength * textBoxData.fontSize * 1.2, 50);
-    } else {
-      // 横書きの場合 - 改行を正しく処理
-      const inputLines = textBoxData.text.split('\n');
-      let maxWidth = 0;
-      let totalLines = inputLines.length || 1; // 最低1行
-      
-      for (let inputLine of inputLines) {
-        // 各行の幅を測定
-        const lineWidth = this.ctx.measureText(inputLine).width;
-        maxWidth = Math.max(maxWidth, lineWidth);
-      }
-      
-      textBoxData.width = Math.max(maxWidth + 20, 100);
-      textBoxData.height = Math.max(totalLines * textBoxData.fontSize * 1.4, textBoxData.fontSize * 1.5);
-    }
-  }
-
-  removeTextInput() {
-    if (this.textInput) {
-      try {
-        // 要素が親ノードに存在するかチェック
-        if (this.textInput.parentNode) {
-          this.textInput.parentNode.removeChild(this.textInput);
-        }
-      } catch (error) {
-        console.log('Text input already removed');
-      }
-      this.textInput = null;
-    }
-  }
-
-  // テキストボックス編集ダイアログを表示
-  showTextBoxEditDialog(textBoxData) {
-    console.log('テキストボックス編集ダイアログを表示:', textBoxData);
-    
-    // 既存のダイアログがあれば削除
-    const existingDialog = document.querySelector('.textbox-edit-dialog');
-    if (existingDialog) {
-      existingDialog.remove();
-    }
-    
-    // ダイアログを作成
-    const dialog = document.createElement('div');
-    dialog.className = 'textbox-edit-dialog';
-    dialog.innerHTML = `
-      <div class="textbox-edit-backdrop">
-        <div class="textbox-edit-content">
-          <div class="textbox-edit-header">
-            <h3>テキストボックス編集</h3>
-          </div>
-          <div class="textbox-edit-body">
-            <div class="edit-field">
-              <label>テキスト内容</label>
-              <textarea id="edit-text-content" rows="4">${textBoxData.text || ''}</textarea>
-            </div>
-            <div class="edit-field">
-              <label>色</label>
-              <div class="color-preset-buttons">
-                <button class="preset-color-btn" data-color="#000000" style="background-color: #000000;" title="黒"></button>
-                <button class="preset-color-btn" data-color="#FF0000" style="background-color: #FF0000;" title="赤"></button>
-                <button class="preset-color-btn" data-color="#0080FF" style="background-color: #0080FF;" title="青"></button>
-                <button class="preset-color-btn" data-color="#00FF00" style="background-color: #00FF00;" title="緑"></button>
-                <button class="preset-color-btn" data-color="#FFFF00" style="background-color: #FFFF00;" title="黄"></button>
-                <button class="preset-color-btn" data-color="#FF00FF" style="background-color: #FF00FF;" title="マゼンタ"></button>
-                <button class="preset-color-btn" data-color="#00FFFF" style="background-color: #00FFFF;" title="シアン"></button>
-                <button class="preset-color-btn" data-color="#FFA500" style="background-color: #FFA500;" title="オレンジ"></button>
-                <button class="preset-color-btn" data-color="#808080" style="background-color: #808080;" title="グレー"></button>
-                <button class="preset-color-btn" data-color="#FFFFFF" style="background-color: #FFFFFF; border: 2px solid #999;" title="白"></button>
-              </div>
-              <div class="color-picker-wrapper">
-                <input type="color" id="edit-text-color" value="${textBoxData.strokeColor || '#000000'}">
-                <span class="color-preview" style="background-color: ${textBoxData.strokeColor || '#000000'}"></span>
-                <span class="color-label">カスタム色</span>
-              </div>
-            </div>
-            <div class="edit-field">
-              <label>フォントサイズ</label>
-              <select id="edit-font-size">
-                <option value="16" ${textBoxData.fontSize === 16 ? 'selected' : ''}>16px</option>
-                <option value="20" ${textBoxData.fontSize === 20 ? 'selected' : ''}>20px</option>
-                <option value="24" ${textBoxData.fontSize === 24 ? 'selected' : ''}>24px</option>
-                <option value="28" ${textBoxData.fontSize === 28 ? 'selected' : ''}>28px</option>
-                <option value="32" ${textBoxData.fontSize === 32 ? 'selected' : ''}>32px</option>
-                <option value="36" ${textBoxData.fontSize === 36 ? 'selected' : ''}>36px</option>
-                <option value="40" ${textBoxData.fontSize === 40 ? 'selected' : ''}>40px</option>
-                <option value="48" ${textBoxData.fontSize === 48 ? 'selected' : ''}>48px</option>
-                <option value="56" ${textBoxData.fontSize === 56 ? 'selected' : ''}>56px</option>
-                <option value="64" ${textBoxData.fontSize === 64 ? 'selected' : ''}>64px</option>
-                <option value="72" ${textBoxData.fontSize === 72 ? 'selected' : ''}>72px</option>
-                <option value="80" ${textBoxData.fontSize === 80 ? 'selected' : ''}>80px</option>
-                <option value="96" ${textBoxData.fontSize === 96 ? 'selected' : ''}>96px</option>
-              </select>
-            </div>
-            <div class="edit-field">
-              <label>向き</label>
-              <div class="orientation-buttons">
-                <button id="edit-orientation-horizontal" class="orientation-btn ${!textBoxData.isVertical ? 'active' : ''}">横書き</button>
-                <button id="edit-orientation-vertical" class="orientation-btn ${textBoxData.isVertical ? 'active' : ''}">縦書き</button>
-              </div>
-            </div>
-          </div>
-          <div class="textbox-edit-actions">
-            <button class="edit-btn-cancel">キャンセル</button>
-            <button class="edit-btn-ok">OK</button>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    // スタイルを追加
-    if (!document.querySelector('#textbox-edit-dialog-style')) {
-      const style = document.createElement('style');
-      style.id = 'textbox-edit-dialog-style';
-      style.textContent = `
-        .textbox-edit-dialog {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          z-index: 10000;
-        }
-        .textbox-edit-backdrop {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .textbox-edit-content {
-          background: white;
-          border-radius: 12px;
-          padding: 24px;
-          min-width: 400px;
-          max-width: 90%;
-          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-        }
-        body.dark-mode .textbox-edit-content {
-          background: #2d2d2d;
-          color: #e0e0e0;
-        }
-        .textbox-edit-header h3 {
-          margin: 0 0 20px 0;
-          font-size: 20px;
-          font-weight: 600;
-        }
-        .textbox-edit-body {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-        .edit-field {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .edit-field label {
-          font-weight: 500;
-          font-size: 14px;
-        }
-        .edit-field textarea {
-          width: 100%;
-          padding: 8px;
-          border: 1px solid #ccc;
-          border-radius: 6px;
-          font-size: 14px;
-          font-family: inherit;
-          resize: vertical;
-        }
-        body.dark-mode .edit-field textarea {
-          background: #3d3d3d;
-          color: #e0e0e0;
-          border-color: #555;
-        }
-        .color-preset-buttons {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 12px;
-          padding: 8px;
-          background: #f5f5f5;
-          border-radius: 8px;
-        }
-        body.dark-mode .color-preset-buttons {
-          background: #3d3d3d;
-        }
-        .preset-color-btn {
-          width: 40px;
-          height: 40px;
-          border: 2px solid #ddd;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.2s;
-          position: relative;
-        }
-        body.dark-mode .preset-color-btn {
-          border-color: #555;
-        }
-        .preset-color-btn:hover {
-          transform: scale(1.1);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-        .preset-color-btn.selected {
-          border-color: #007AFF;
-          box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
-        }
-        .color-picker-wrapper {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          padding-top: 8px;
-          border-top: 1px solid #e0e0e0;
-        }
-        body.dark-mode .color-picker-wrapper {
-          border-top-color: #555;
-        }
-        .color-picker-wrapper input[type="color"] {
-          width: 50px;
-          height: 36px;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-        }
-        .color-preview {
-          width: 36px;
-          height: 36px;
-          border-radius: 6px;
-          border: 1px solid #ccc;
-        }
-        .color-label {
-          font-size: 12px;
-          color: #666;
-        }
-        body.dark-mode .color-label {
-          color: #aaa;
-        }
-        .edit-field select {
-          padding: 8px;
-          border: 1px solid #ccc;
-          border-radius: 6px;
-          font-size: 14px;
-          background: white;
-          cursor: pointer;
-        }
-        body.dark-mode .edit-field select {
-          background: #3d3d3d;
-          color: #e0e0e0;
-          border-color: #555;
-        }
-        .orientation-buttons {
-          display: flex;
-          gap: 8px;
-        }
-        .orientation-btn {
-          flex: 1;
-          padding: 8px 16px;
-          border: 1px solid #ccc;
-          border-radius: 6px;
-          background: white;
-          cursor: pointer;
-          font-size: 14px;
-          transition: all 0.2s;
-        }
-        .orientation-btn.active {
-          background: #007AFF;
-          color: white;
-          border-color: #007AFF;
-        }
-        body.dark-mode .orientation-btn {
-          background: #3d3d3d;
-          color: #e0e0e0;
-          border-color: #555;
-        }
-        body.dark-mode .orientation-btn.active {
-          background: #0066CC;
-          border-color: #0066CC;
-        }
-        .textbox-edit-actions {
-          display: flex;
-          gap: 12px;
-          justify-content: flex-end;
-          margin-top: 20px;
-        }
-        .textbox-edit-actions button {
-          padding: 10px 24px;
-          border: none;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .edit-btn-cancel {
-          background: #f0f0f0;
-          color: #333;
-        }
-        .edit-btn-cancel:hover {
-          background: #e0e0e0;
-        }
-        body.dark-mode .edit-btn-cancel {
-          background: #3d3d3d;
-          color: #e0e0e0;
-        }
-        body.dark-mode .edit-btn-cancel:hover {
-          background: #4d4d4d;
-        }
-        .edit-btn-ok {
-          background: #007AFF;
-          color: white;
-        }
-        .edit-btn-ok:hover {
-          background: #0066CC;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-    
-    document.body.appendChild(dialog);
-    
-    // イベントリスナーを追加
-    const textInput = dialog.querySelector('#edit-text-content');
-    const colorInput = dialog.querySelector('#edit-text-color');
-    const colorPreview = dialog.querySelector('.color-preview');
-    const fontSizeSelect = dialog.querySelector('#edit-font-size');
-    const horizontalBtn = dialog.querySelector('#edit-orientation-horizontal');
-    const verticalBtn = dialog.querySelector('#edit-orientation-vertical');
-    const cancelBtn = dialog.querySelector('.edit-btn-cancel');
-    const okBtn = dialog.querySelector('.edit-btn-ok');
-    const backdrop = dialog.querySelector('.textbox-edit-backdrop');
-    const presetColorButtons = dialog.querySelectorAll('.preset-color-btn');
-    
-    let isVertical = textBoxData.isVertical;
-    let selectedColor = textBoxData.strokeColor || '#000000';
-    
-    // 初期選択状態を設定
-    presetColorButtons.forEach(btn => {
-      if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
-        btn.classList.add('selected');
-      }
-    });
-    
-    // プリセットカラーボタンのイベント
-    presetColorButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectedColor = btn.dataset.color;
-        colorInput.value = selectedColor;
-        colorPreview.style.backgroundColor = selectedColor;
-        
-        // 選択状態を更新
-        presetColorButtons.forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-      });
-    });
-    
-    // カラーピッカー変更時
-    colorInput.addEventListener('input', () => {
-      selectedColor = colorInput.value;
-      colorPreview.style.backgroundColor = selectedColor;
-      
-      // プリセットボタンの選択状態をクリア
-      presetColorButtons.forEach(btn => {
-        if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
-          btn.classList.add('selected');
-        } else {
-          btn.classList.remove('selected');
-        }
-      });
-    });
-    
-    // 向きボタンのイベント
-    horizontalBtn.addEventListener('click', () => {
-      isVertical = false;
-      horizontalBtn.classList.add('active');
-      verticalBtn.classList.remove('active');
-    });
-    
-    verticalBtn.addEventListener('click', () => {
-      isVertical = true;
-      verticalBtn.classList.add('active');
-      horizontalBtn.classList.remove('active');
-    });
-    
-    // ESCキーで閉じる
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        cleanup();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    
-    const cleanup = () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      dialog.remove();
-    };
-    
-    cancelBtn.addEventListener('click', () => {
-      cleanup();
-    });
-    
-    okBtn.addEventListener('click', () => {
-      console.log('OK button clicked');
-      // 変更を適用
-      textBoxData.text = textInput.value.trim();
-      textBoxData.strokeColor = selectedColor;
-      textBoxData.fontSize = parseInt(fontSizeSelect.value);
-      textBoxData.isVertical = isVertical;
-      
-      console.log('Updated textBoxData:', textBoxData);
-      
-      // サイズを再計算
-      this.recalculateTextBoxSize(textBoxData);
-      
-      // 履歴をクリア（編集は新しい操作として扱う）
-      this.redoStack = [];
-      this.lastOperationType = 'path';
-      
-      // アンドゥ/リドゥボタンの状態を更新
-      this.updateUndoRedoButtons();
-      
-      // 再描画
-      this.redrawCanvas();
-      
-      console.log('Calling cleanup');
-      cleanup();
-    });
-    
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) {
-        cleanup();
-      }
-    });
-    
-    // テキストエリアにフォーカス
-    setTimeout(() => {
-      textInput.focus();
-      textInput.select();
-    }, 100);
-  }
-  
-  // テキストボックスのサイズを再計算
-  recalculateTextBoxSize(textBoxData) {
-    const text = textBoxData.text || '';
-    const fontSize = textBoxData.fontSize;
-    const padding = 20;
-    
-    this.ctx.font = `${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", Arial, sans-serif`;
-    
-    if (textBoxData.isVertical) {
-      // 縦書き：行数×フォントサイズで幅、最長行×フォントサイズで高さ
-      const lines = text.split('\n');
-      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
-      textBoxData.width = lines.length * fontSize * 1.2 + padding * 2;
-      textBoxData.height = maxLineLength * fontSize + padding * 2;
-    } else {
-      // 横書き：最長行の幅、行数×行高で高さ
-      const lines = text.split('\n');
-      let maxWidth = 0;
-      for (const line of lines) {
-        const metrics = this.ctx.measureText(line);
-        maxWidth = Math.max(maxWidth, metrics.width);
-      }
-      const lineHeight = fontSize * 1.3;
-      textBoxData.width = maxWidth + padding * 2;
-      textBoxData.height = lines.length * lineHeight + padding * 2;
-    }
-  }
-
-  // 編集中のテキストボックスを完全に削除（テキスト入力フィールド + 空のテキストボックスデータのみ）
-  removeCurrentTextBox() {
-    console.log('=== removeCurrentTextBox 開始 ===');
-    console.log('削除前の状態:', {
-      textInput: this.textInput,
-      allPathsCount: this.allPaths.length,
-      selectedTextBox: this.selectedTextBox
-    });
-    
-    // テキスト入力フィールドを削除
-    this.removeTextInput();
-    
-    // 編集中（選択状態）で空のテキストボックスのみを allPaths から削除
-    const editingIndex = this.allPaths.findIndex(path => 
-      path.tool === 'textbox' && path.isSelected && (!path.text || path.text.trim() === '')
-    );
-    
-    console.log('削除対象の空テキストボックスのインデックス:', editingIndex);
-    
-    if (editingIndex !== -1) {
-      const removedPath = this.allPaths.splice(editingIndex, 1)[0];
-      console.log('削除された空のテキストボックス:', removedPath);
-      console.log('空のテキストボックスを削除しました');
-      
-      // アンドゥ/リドゥボタンの状態を更新
-      this.updateUndoRedoButtons();
-    } else {
-      console.log('削除対象の空テキストボックスが見つかりませんでした');
-      
-      // テキストが入力済みの選択状態テキストボックスがある場合は削除せず選択解除のみ
-      const selectedTextBoxWithText = this.allPaths.find(path => 
-        path.tool === 'textbox' && path.isSelected && path.text && path.text.trim() !== ''
-      );
-      
-      if (selectedTextBoxWithText) {
-        console.log('テキストが入力済みのテキストボックスは削除せず選択解除のみ行います:', selectedTextBoxWithText);
-        selectedTextBoxWithText.isSelected = false;
-      }
-    }
-    
-    // 選択状態をクリア
-    this.selectedTextBox = null;
-    
-    console.log('削除後の状態:', {
-      allPathsCount: this.allPaths.length,
-      selectedTextBox: this.selectedTextBox
-    });
-    
-    // 画面を再描画
-    this.redrawCanvas();
-    console.log('=== removeCurrentTextBox 完了 ===');
   }
 
   updateCursor() {
@@ -4797,7 +2962,7 @@ export class DrawingCanvas {
         const segmentsToRemove = [];
         for (let j = 0; j < segments.length; j++) {
           const segment = segments[j];
-          if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+          if (isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
             segmentsToRemove.push(j);
           }
         }
@@ -4853,7 +3018,7 @@ export class DrawingCanvas {
               // この線分は削除 - 現在のポリラインを完了
               if (currentPolyline.length >= 2) {
                 // 線分の長さをチェックして短すぎる場合は削除
-                const polylineLength = this.calculatePolylineLength(currentPolyline);
+                const polylineLength = calculatePolylineLength(currentPolyline);
                 if (polylineLength >= minLineLength) {
                   newPolylines.push({
                     tool: 'polyline-grid',
@@ -4871,7 +3036,7 @@ export class DrawingCanvas {
           
           // 最後のポリラインを追加（長さチェック付き）
           if (currentPolyline.length >= 2) {
-            const polylineLength = this.calculatePolylineLength(currentPolyline);
+            const polylineLength = calculatePolylineLength(currentPolyline);
             if (polylineLength >= minLineLength) {
               newPolylines.push({
                 tool: 'polyline-grid',
@@ -4913,8 +3078,8 @@ export class DrawingCanvas {
         // 矢印の場合は特別な処理を行う
         if (pathData.lineStyle === 'arrow') {
           // 矢印の先端部分に消しゴムが触れているかチェック
-          const arrowHeadRegion = this.getArrowHeadRegion(pathData.startPoint, pathData.endPoint);
-          const isErasingArrowHead = this.isPointInArrowHead(coords, arrowHeadRegion, eraserSize);
+          const arrowHeadRegion = getArrowHeadRegion(pathData.startPoint, pathData.endPoint);
+          const isErasingArrowHead = isPointInArrowHead(coords, arrowHeadRegion, eraserSize);
           
           if (isErasingArrowHead) {
             // 先端部分を消す場合は矢印全体を削除
@@ -4928,8 +3093,8 @@ export class DrawingCanvas {
             for (let j = 0; j < segments.length; j++) {
               const segment = segments[j];
               // 先端部分と重複しないセグメントのみ削除対象とする
-              if (!this.isSegmentInArrowHead(segment, arrowHeadRegion) &&
-                  this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+              if (!isSegmentInArrowHead(segment, arrowHeadRegion) &&
+                  isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
                 segmentsToRemove.push(j);
               }
             }
@@ -4968,7 +3133,7 @@ export class DrawingCanvas {
           
           for (let j = 0; j < segments.length; j++) {
             const segment = segments[j];
-            if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+            if (isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
               segmentsToRemove.push(j);
             }
           }
@@ -5005,7 +3170,7 @@ export class DrawingCanvas {
         
         for (let j = 0; j < segments.length; j++) {
           const segment = segments[j];
-          if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+          if (isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
             segmentsToRemove.push(j);
           }
         }
@@ -5034,7 +3199,7 @@ export class DrawingCanvas {
         
         for (let j = 0; j < rectangleSegments.length; j++) {
           const segment = rectangleSegments[j];
-          if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+          if (isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
             segmentsToRemove.push(j);
           }
         }
@@ -5062,7 +3227,7 @@ export class DrawingCanvas {
           console.log('階段を削除します:', { coords, startPoint: pathData.startPoint, endPoint: pathData.endPoint, stairWidth: pathData.stairWidth });
           pathsToRemove.push(i);
         } else {
-          console.log('階段判定: ヒットせず', { coords, distance: this.distanceToLine(coords, pathData.startPoint, pathData.endPoint), eraserSize });
+          console.log('階段判定: ヒットせず', { coords, distance: distanceToLine(coords, pathData.startPoint, pathData.endPoint), eraserSize });
         }
       } else if (pathData.tool === 'door') {
         // 扉の場合 - 扉全体を削除
@@ -5322,7 +3487,7 @@ export class DrawingCanvas {
         
         for (let j = 0; j < segments.length; j++) {
           const segment = segments[j];
-          if (this.isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
+          if (isPointNearLineSegment(coords, segment.start, segment.end, eraserSize)) {
             matchingSegments.push(segment);
           }
         }
@@ -5446,11 +3611,11 @@ export class DrawingCanvas {
     
     switch (pathData.tool) {
       case 'line':
-        return this.distanceToLine(coords, startPoint, endPoint) <= tolerance;
+        return distanceToLine(coords, startPoint, endPoint) <= tolerance;
       case 'rectangle':
-        return this.isPointNearRectangle(coords, startPoint, endPoint, tolerance);
+        return isPointNearRectangle(coords, startPoint, endPoint, tolerance);
       case 'circle':
-        return this.isPointNearCircle(coords, startPoint, endPoint, tolerance);
+        return isPointNearCircle(coords, startPoint, endPoint, tolerance);
       case 'stairs':
         // 階段は中心線（矢印線）と段鼻線（横線）の両方で判定
         return this.isPointNearStairs(coords, startPoint, endPoint, pathData.stairWidth || this.gridSize, tolerance);
@@ -5465,7 +3630,7 @@ export class DrawingCanvas {
   // 階段との距離判定（矢印線と段鼻線の両方を考慮）
   isPointNearStairs(coords, startPoint, endPoint, stairWidth, tolerance) {
     // 1. 中心線（矢印線）との距離をチェック
-    if (this.distanceToLine(coords, startPoint, endPoint) <= tolerance) {
+    if (distanceToLine(coords, startPoint, endPoint) <= tolerance) {
       return true;
     }
     
@@ -5504,7 +3669,7 @@ export class DrawingCanvas {
         y: stepY - perpY * halfWidth
       };
       
-      if (this.distanceToLine(coords, stepStart, stepEnd) <= tolerance) {
+      if (distanceToLine(coords, stepStart, stepEnd) <= tolerance) {
         return true;
       }
     }
@@ -5544,7 +3709,7 @@ export class DrawingCanvas {
     }
     
     // 通常の扉の当たり判定
-    const baseDistance = this.distanceToLine(coords, startPoint, endPoint);
+    const baseDistance = distanceToLine(coords, startPoint, endPoint);
     
     // 扉の種類によって当たり判定の範囲を調整
     let expandedTolerance = tolerance;
@@ -5595,90 +3760,8 @@ export class DrawingCanvas {
     return false;
   }
 
-  distanceToLine(point, lineStart, lineEnd) {
-    const A = point.x - lineStart.x;
-    const B = point.y - lineStart.y;
-    const C = lineEnd.x - lineStart.x;
-    const D = lineEnd.y - lineStart.y;
-
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    
-    if (lenSq === 0) return Math.sqrt(A * A + B * B);
-    
-    let param = dot / lenSq;
-    
-    let xx, yy;
-    if (param < 0) {
-      xx = lineStart.x;
-      yy = lineStart.y;
-    } else if (param > 1) {
-      xx = lineEnd.x;
-      yy = lineEnd.y;
-    } else {
-      xx = lineStart.x + param * C;
-      yy = lineStart.y + param * D;
-    }
-
-    const dx = point.x - xx;
-    const dy = point.y - yy;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  // シンプルで確実な線分近接判定（斜め線の消去量を増加）
-  isPointNearLineSegmentImproved(coords, segmentStart, segmentEnd, tolerance) {
-    const distance = this.distanceToLine(coords, segmentStart, segmentEnd);
-    
-    // 線の角度を計算
-    const dx = segmentEnd.x - segmentStart.x;
-    const dy = segmentEnd.y - segmentStart.y;
-    const angle = Math.abs(Math.atan2(dy, dx));
-    
-    // 角度による判定範囲の調整
-    let adjustedTolerance = tolerance;
-    
-    // 斜め線（0度、90度以外）の場合は消去範囲を拡大
-    const angleInDegrees = (angle * 180) / Math.PI;
-    const isHorizontalOrVertical = (angleInDegrees < 10) || (angleInDegrees > 80 && angleInDegrees < 100) || (angleInDegrees > 170);
-    
-    if (!isHorizontalOrVertical) {
-      // 斜め線の場合は1.4倍（40%増し）に拡大
-      adjustedTolerance *= 1.4;
-    }
-    
-    return distance <= adjustedTolerance;
-  }
-
-  isPointNearRectangle(coords, start, end, tolerance) {
-    const left = Math.min(start.x, end.x);
-    const right = Math.max(start.x, end.x);
-    const top = Math.min(start.y, end.y);
-    const bottom = Math.max(start.y, end.y);
-    
-    // 四角形の各辺との距離を計算
-    const distances = [
-      this.distanceToLine(coords, {x: left, y: top}, {x: right, y: top}), // 上辺
-      this.distanceToLine(coords, {x: right, y: top}, {x: right, y: bottom}), // 右辺
-      this.distanceToLine(coords, {x: right, y: bottom}, {x: left, y: bottom}), // 下辺
-      this.distanceToLine(coords, {x: left, y: bottom}, {x: left, y: top}) // 左辺
-    ];
-    
-    return Math.min(...distances) <= tolerance;
-  }
-
-  isPointNearCircle(coords, start, end, tolerance) {
-    const centerX = (start.x + end.x) / 2;
-    const centerY = (start.y + end.y) / 2;
-    const radius = Math.abs(end.x - start.x) / 2;
-    
-    const distanceToCenter = Math.sqrt(
-      Math.pow(coords.x - centerX, 2) + Math.pow(coords.y - centerY, 2)
-    );
-    
-    // 円周との距離
-    const distanceToCircle = Math.abs(distanceToCenter - radius);
-    return distanceToCircle <= tolerance;
-  }
+  // distanceToLine / isPointNearLineSegmentImproved / isPointNearRectangle / isPointNearCircle は
+  // canvas/geometry.js に純関数として抽出済み（このクラスからは削除）
 
   // 直線を細かいセグメントに分割（消しゴムサイズベース、グリッド非依存）
   getLineSegments(pathData) {
@@ -5720,11 +3803,7 @@ export class DrawingCanvas {
     return segments;
   }
 
-  // 線分セグメントとの距離をチェック（改良版）
-  isPointNearLineSegment(coords, segmentStart, segmentEnd, tolerance) {
-    // 改良版の判定を使用（斜めの線により対応）
-    return this.isPointNearLineSegmentImproved(coords, segmentStart, segmentEnd, tolerance);
-  }
+  // isPointNearLineSegment は canvas/geometry.js に抽出済み
 
   // 指定されたセグメントを削除して新しい線分を作成
   removeLineSegments(pathData, segmentsToRemove) {
@@ -5744,7 +3823,7 @@ export class DrawingCanvas {
       } else {
         // このセグメントは削除 - 現在のグループを完了
         if (currentGroup.length > 0) {
-          const newLine = this.createLineFromSegments(currentGroup, pathData);
+          const newLine = createLineFromSegments(currentGroup, pathData);
           if (newLine) {
             newLines.push(newLine);
           }
@@ -5755,7 +3834,7 @@ export class DrawingCanvas {
     
     // 最後のグループを処理
     if (currentGroup.length > 0) {
-      const newLine = this.createLineFromSegments(currentGroup, pathData);
+      const newLine = createLineFromSegments(currentGroup, pathData);
       if (newLine) {
         newLines.push(newLine);
       }
@@ -5764,21 +3843,7 @@ export class DrawingCanvas {
     return newLines;
   }
 
-  // セグメントグループから新しい線分を作成
-  createLineFromSegments(segments, originalPathData) {
-    if (segments.length === 0) return null;
-    
-    const firstSegment = segments[0];
-    const lastSegment = segments[segments.length - 1];
-    
-    return {
-      tool: 'line',
-      startPoint: firstSegment.start,
-      endPoint: lastSegment.end,
-      strokeWidth: originalPathData.strokeWidth,
-      strokeColor: originalPathData.strokeColor
-    };
-  }
+  // createLineFromSegments は canvas/geometry.js に抽出済み
 
   // ズーム機能
   zoomAt(x, y, zoom) {
@@ -7073,79 +5138,8 @@ export class DrawingCanvas {
     ctx.restore();
   }
 
-  // 矢印の先端部分の範囲を計算
-  getArrowHeadRegion(startPoint, endPoint, arrowSize = 10) {
-    const dx = endPoint.x - startPoint.x;
-    const dy = endPoint.y - startPoint.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    
-    if (length === 0) return null;
-    
-    // 矢印の先端部分の長さ（線の長さの10%または最小10px）
-    const headLength = Math.max(arrowSize, length * 0.1);
-    
-    // 矢印の先端から後方への距離
-    const ratio = headLength / length;
-    const headBaseX = endPoint.x - dx * ratio;
-    const headBaseY = endPoint.y - dy * ratio;
-    
-    return {
-      tip: { x: endPoint.x, y: endPoint.y },
-      base: { x: headBaseX, y: headBaseY },
-      length: headLength
-    };
-  }
-
-  // 点が矢印の先端部分に含まれるかチェック
-  isPointInArrowHead(point, arrowHeadRegion, tolerance = 0) {
-    if (!arrowHeadRegion) return false;
-    
-    // 矢印の先端部分の三角形範囲内かチェック
-    const distance = this.distanceToLineSegment(point, arrowHeadRegion.base, arrowHeadRegion.tip);
-    return distance <= (arrowHeadRegion.length / 2 + tolerance);
-  }
-
-  // 線分が矢印の先端部分と重複するかチェック
-  isSegmentInArrowHead(segment, arrowHeadRegion) {
-    if (!arrowHeadRegion) return false;
-    
-    // セグメントの両端が矢印の先端範囲内にあるかチェック
-    const startInHead = this.isPointInArrowHead(segment.start, arrowHeadRegion, 5);
-    const endInHead = this.isPointInArrowHead(segment.end, arrowHeadRegion, 5);
-    
-    return startInHead || endInHead;
-  }
-
-  // 点と線分の距離を計算
-  distanceToLineSegment(point, lineStart, lineEnd) {
-    const A = point.x - lineStart.x;
-    const B = point.y - lineStart.y;
-    const C = lineEnd.x - lineStart.x;
-    const D = lineEnd.y - lineStart.y;
-
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    let param = -1;
-    if (lenSq !== 0) {
-      param = dot / lenSq;
-    }
-
-    let xx, yy;
-    if (param < 0) {
-      xx = lineStart.x;
-      yy = lineStart.y;
-    } else if (param > 1) {
-      xx = lineEnd.x;
-      yy = lineEnd.y;
-    } else {
-      xx = lineStart.x + param * C;
-      yy = lineStart.y + param * D;
-    }
-
-    const dx = point.x - xx;
-    const dy = point.y - yy;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
+  // getArrowHeadRegion / isPointInArrowHead / isSegmentInArrowHead / distanceToLineSegment は
+  // canvas/geometry.js に抽出済み
 
   // 描画範囲を取得する関数
   getDrawingBounds() {
@@ -7188,2331 +5182,12 @@ export class DrawingCanvas {
     };
   }
 
-  // 画像エクスポート機能（PDFと完全に同じレイアウト）
-  async exportToImage(format = 'png', quality = 0.95) {
-    try {
-      console.log('🖼️ 画像エクスポート開始（PDF完全準拠）:', format);
-      
-      // PNG形式の場合は余白なし、それ以外はPDFと同じ
-      const pdfWidth = 210; // A4幅(mm)
-      const pdfHeight = 297; // A4高さ(mm)
-      const margin = format === 'png' ? 0 : 15; // PNG: 余白なし、JPG: 余白あり
-      const headerHeight = 20; // ヘッダー高さ(mm) - PDFと同じ
-      const footerHeight = 0; // フッター削除 - PDFと同じ
-      
-      // PDFと同じ利用可能エリア計算
-      const availablePDFWidth = pdfWidth - (margin * 2); // 180mm
-      const availablePDFHeight = pdfHeight - (margin * 2) - headerHeight; // 252mm
-      const optimalRatio = availablePDFWidth / availablePDFHeight; // 約0.714
-      
-      // キャプチャ範囲：中心を合わせるために横34マスに固定（2倍に拡大、偶数）
-      const captureHeightMas = 44; // 縦マス数（2倍）
-      const captureWidthMas = 34; // 横マス数（2倍、偶数、中心を0マスに）
-      
-      const captureWidth = captureWidthMas * this.gridSize;   
-      const captureHeight = captureHeightMas * this.gridSize; 
-      
-      // グリッドに合わせたキャプチャ開始位置（中心を0,0に）
-      const halfGrid = this.gridSize / 2;
-      const startX = -captureWidth / 2;  // 中心
-      const startY = -captureHeight / 2; // 中心
-      
-      console.log('キャプチャ範囲（PDF準拠）:', {
-        マス数: { width: captureWidthMas, height: captureHeightMas },
-        ピクセル: { width: captureWidth, height: captureHeight },
-        アスペクト比: (captureWidth / captureHeight).toFixed(3),
-        PDF最適比: optimalRatio.toFixed(3)
-      });
-      
-      // 高解像度でA4サイズのCanvasを作成
-      const dpi = 300; // 300DPI
-      const mmToPx = dpi / 25.4; // 1mm = 約11.81px
-      
-      // PNG/JPG共にA4フルサイズ(210mm × 297mm)
-      const imageWidth = Math.round(pdfWidth * mmToPx);
-      const imageHeight = Math.round(pdfHeight * mmToPx);
-      
-      const marginPx = Math.round(margin * mmToPx); // PNG: 0, JPG: 15mm
-      const headerHeightPx = Math.round(headerHeight * mmToPx);
-      
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { 
-        alpha: false, // PDFと同じ設定
-        willReadFrequently: true 
-      });
-      
-      canvas.width = imageWidth;
-      canvas.height = imageHeight;
-      
-      // PDFと同じ背景設定
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, imageWidth, imageHeight);
-      
-      // PDFと同じヘッダーを描画
-      await this.drawImageHeader(ctx, imageWidth, marginPx, headerHeightPx, mmToPx);
-      
-      // 図面部分の一時キャンバスを作成（PDFと同じロジック）
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d', { 
-        alpha: false,
-        willReadFrequently: true
-      });
-      
-      // アスペクト比を保ったままキャンバスサイズを制限
-      const maxSize = 4096;
-      const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
-      const safeWidth = Math.round(captureWidth * pixelScale);
-      const safeHeight = Math.round(captureHeight * pixelScale);
 
-      tempCanvas.width = safeWidth;
-      tempCanvas.height = safeHeight;
-
-      tempCtx.fillStyle = 'white';
-      tempCtx.fillRect(0, 0, safeWidth, safeHeight);
-      tempCtx.imageSmoothingEnabled = true;
-      tempCtx.imageSmoothingQuality = 'high';
-      // 世界座標 → ピクセルのスケーリング（縦横同じ倍率なのでアスペクト保持）
-      tempCtx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
-
-      // グリッドとパスは「世界座標サイズ」を渡す（スケールは ctx 側で適用）
-      this.drawGridOnContext(tempCtx, captureWidth, captureHeight);
-      this.redrawPathsOnContext(tempCtx, startX, startY, captureWidth, captureHeight);
-      
-      // 一時キャンバスから画像データを取得
-      const tempDataURL = tempCanvas.toDataURL('image/png', 0.95);
-      
-      // PDFと同じスケーリング計算
-      const availableWidth = imageWidth - (marginPx * 2);
-      const availableHeight = imageHeight - (marginPx * 2) - headerHeightPx - 0; // footerHeight = 0
-      
-      const scaleX = availableWidth / captureWidth;
-      const scaleY = availableHeight / captureHeight;
-      const scale = Math.min(scaleX, scaleY); // PDFと同じロジック
-      
-      const finalWidth = captureWidth * scale;
-      const finalHeight = captureHeight * scale;
-      
-      // PDFと同じ中央配置計算
-      const x = marginPx + (availableWidth - finalWidth) / 2;
-      const y = marginPx + headerHeightPx + (availableHeight - finalHeight) / 2;
-      
-      console.log('配置情報（PDF準拠）:', {
-        キャプチャサイズ: { width: captureWidth, height: captureHeight },
-        利用可能エリア: { width: availableWidth, height: availableHeight },
-        スケール: { scaleX, scaleY, 使用: scale },
-        最終サイズ: { width: finalWidth, height: finalHeight },
-        配置位置: { x, y }
-      });
-      
-      // 一時キャンバスの内容をメインキャンバスに描画（PDFと同じ位置とサイズ）
-      const tempImg = new Image();
-      await new Promise((resolve, reject) => {
-        tempImg.onload = () => {
-          ctx.drawImage(tempImg, x, y, finalWidth, finalHeight);
-          resolve();
-        };
-        tempImg.onerror = reject;
-        tempImg.src = tempDataURL;
-      });
-      
-      // PDFと同じロゴを描画
-      await this.drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight, format);
-      
-      // PDFと同じオレンジ色の枠線を描画（ヘッダーごと囲む）
-      ctx.strokeStyle = '#e26b0a'; // PDFと同じ色 (RGB: 226, 107, 10)
-      ctx.lineWidth = 1 * mmToPx; // PDFと同じ線の太さ (1mm)
-      
-      // 枠線の範囲（PNG: 端から端まで、JPG: 余白内）
-      const frameX = marginPx;
-      const frameY = marginPx;
-      const frameWidth = imageWidth - (marginPx * 2);
-      const frameHeight = imageHeight - (marginPx * 2);
-      
-      ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
-      
-      console.log('オレンジ色枠線を画像に追加:', {
-        color: '#e26b0a',
-        lineWidth: 1 * mmToPx,
-        format: format,
-        margin: marginPx,
-        frame: { x: frameX, y: frameY, width: frameWidth, height: frameHeight },
-        imageSize: { width: imageWidth, height: imageHeight }
-      });
-      
-      // 最終的な画像として出力
-      const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
-      
-      // Web Share API対応チェック
-      if (navigator.share && navigator.canShare) {
-        return await this.shareImageViaAPI(canvas, mimeType, quality);
-      } else {
-        return this.downloadImage(canvas, mimeType, quality, format);
-      }
-      
-    } catch (error) {
-      console.error('画像エクスポートエラー:', error);
-      return false;
-    }
-  }
-
-  // Excel貼り付け用: 装飾なし（ヘッダー・ロゴ・枠線なし）の図面のみを Blob として返す
-  // PDF/画像と同じく原点中心の固定範囲（34×44マス）をキャプチャ。アスペクト比は保持。
-  async renderDrawingToBlob({ widthGridUnits = 34, heightGridUnits = 44, withGrid = true } = {}) {
-    const captureWidth = widthGridUnits * this.gridSize;
-    const captureHeight = heightGridUnits * this.gridSize;
-    const startX = -captureWidth / 2;
-    const startY = -captureHeight / 2;
-
-    // アスペクト比を保ったまま 4096 以内に収める
-    const maxSize = 4096;
-    const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
-    const safeWidth = Math.round(captureWidth * pixelScale);
-    const safeHeight = Math.round(captureHeight * pixelScale);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = safeWidth;
-    canvas.height = safeHeight;
-    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    // 白背景
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, safeWidth, safeHeight);
-
-    // 世界座標 → ピクセル のスケーリング（縦横同じ倍率）
-    ctx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
-
-    if (withGrid) {
-      this.drawGridOnContext(ctx, captureWidth, captureHeight);
-    }
-    this.redrawPathsOnContext(ctx, startX, startY, captureWidth, captureHeight);
-
-    return await new Promise((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/png', 0.95);
-    });
-  }
-
-  // 画像用ヘッダー描画（PDFと完全に同じスタイル）
-  async drawImageHeader(ctx, imageWidth, marginPx, headerHeightPx, mmToPx) {
-    // ヘッダー背景（青色 - #0066cc）- PDFと同じ色
-    ctx.fillStyle = '#0066cc';
-    ctx.fillRect(marginPx, marginPx, imageWidth - (marginPx * 2), headerHeightPx);
-    
-    // 「間取り図」テキストを作成（PDFと同じ方法）
-    const titleCanvas = document.createElement('canvas');
-    const titleCtx = titleCanvas.getContext('2d');
-    
-    // PDFと同じテキスト設定
-    const fontSize = 18;
-    const titleText = '間取り図';
-    const pixelRatio = 3; // PDFと同じ高解像度
-    
-    titleCtx.font = `bold ${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`;
-    
-    // PDFと同じサイズ測定
-    const measuredWidth = titleCtx.measureText(titleText).width;
-    const textHeight = fontSize;
-    
-    // PDFと同じキャンバスサイズ設定
-    titleCanvas.width = (measuredWidth + 20) * pixelRatio;
-    titleCanvas.height = (textHeight + 12) * pixelRatio;
-    
-    // PDFと同じスケール設定
-    titleCtx.scale(pixelRatio, pixelRatio);
-    
-    // PDFと同じフォント再設定
-    titleCtx.font = `bold ${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`;
-    titleCtx.fillStyle = '#fccc9e'; // PDFと同じ薄いオレンジ色
-    titleCtx.textAlign = 'left';
-    titleCtx.textBaseline = 'top';
-    
-    // PDFと同じアンチエイリアス設定
-    titleCtx.imageSmoothingEnabled = true;
-    titleCtx.imageSmoothingQuality = 'high';
-    
-    // PDFと同じ背景クリア
-    titleCtx.clearRect(0, 0, titleCanvas.width / pixelRatio, titleCanvas.height / pixelRatio);
-    
-    // PDFと同じテキスト描画
-    titleCtx.fillText(titleText, 10, 6);
-    
-    // 描画完了を待つ（PDFと同じ）
-    await new Promise(resolve => setTimeout(resolve, 50));
-    
-    // PDFと同じ画像変換
-    const textImageData = titleCanvas.toDataURL('image/png', 1.0);
-    
-    // PDFと同じサイズ計算（mm → px変換）
-    const textDisplayWidthMm = (measuredWidth + 20) * 0.35;
-    const textDisplayHeightMm = (textHeight + 12) * 0.35;
-    const textDisplayWidthPx = textDisplayWidthMm * mmToPx;
-    const textDisplayHeightPx = textDisplayHeightMm * mmToPx;
-    
-    // PDFと同じ位置計算
-    const textX = marginPx + (2 * mmToPx); // margin + 2mm
-    const textY = marginPx + (1 * mmToPx); // margin + 1mm
-    
-    // 画像を読み込んで描画
-    const textImg = new Image();
-    await new Promise((resolve) => {
-      textImg.onload = () => {
-        ctx.drawImage(textImg, textX, textY, textDisplayWidthPx, textDisplayHeightPx);
-        resolve();
-      };
-      textImg.src = textImageData;
-    });
-    
-    // PDFと同じ太い線を描画（#99ccff色、6mm太さ）
-    const lineThicknessMm = 6; // 12mmから6mmに変更
-    const lineThicknessPx = lineThicknessMm * mmToPx;
-    const lineY = marginPx + headerHeightPx;
-    
-    ctx.strokeStyle = '#99ccff'; // PDFと同じ色 (RGB: 153, 204, 255)
-    ctx.lineWidth = lineThicknessPx;
-    ctx.beginPath();
-    ctx.moveTo(marginPx, lineY);
-    ctx.lineTo(imageWidth - marginPx, lineY);
-    ctx.stroke();
-    
-    console.log('PDFヘッダー完全再現完了:', {
-      titleSize: { width: textDisplayWidthPx, height: textDisplayHeightPx },
-      titlePosition: { x: textX, y: textY },
-      lineThickness: lineThicknessPx,
-      linePosition: lineY
-    });
-  }
-
-  // 画像にロゴを描画（PDFと同じ）
-  async drawImageLogo(ctx, marginPx, headerHeightPx, mmToPx, imageWidth, imageHeight, format = 'jpg') {
-    try {
-      // ロゴ画像を読み込み
-      const logoImg = new Image();
-      await new Promise((resolve, reject) => {
-        logoImg.onload = resolve;
-        logoImg.onerror = reject;
-        logoImg.src = '/logo.png';
-      });
-      
-      // PDFと同じロゴサイズ計算（15mm高さ）
-      const logoHeightMm = 15;
-      const logoHeight = logoHeightMm * mmToPx;
-      const aspectRatio = logoImg.width / logoImg.height;
-      const logoWidth = logoHeight * aspectRatio;
-      
-      // A4フルサイズ基準で配置（PNG/JPG共通）
-      const a4WidthMm = 210;
-      const a4HeightMm = 297;
-      const edgeMarginMm = format === 'png' ? 5 : 10; // PNG: 端から5mm、JPG: 端から10mm
-      
-      // 右下配置：右端からedgeMarginMm、下端からedgeMarginMm
-      const logoXMm = a4WidthMm - edgeMarginMm - (logoHeightMm * aspectRatio);
-      const logoYMm = a4HeightMm - edgeMarginMm - logoHeightMm;
-      
-      // mm → px 変換
-      const logoX = logoXMm * mmToPx;
-      const logoY = logoYMm * mmToPx;
-      
-      // キャンバスにロゴを描画
-      ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight);
-      
-      console.log(`ロゴ画像を画像に追加しました（${format}形式、右下端配置）:`, {
-        format: format,
-        logoSize: { width: logoWidth, height: logoHeight },
-        logoPosition: { x: logoX, y: logoY },
-        logoPositionMm: { x: logoXMm, y: logoYMm }
-      });
-      
-    } catch (error) {
-      console.warn('ロゴ画像の読み込みに失敗:', error.message);
-      // エラーが発生しても画像エクスポートは続行
-    }
-  }
-
-  // Web Share API経由での画像共有（iPadネイティブ共有シート）
-  async shareImageViaAPI(canvas, mimeType, quality) {
-    try {
-      console.log('🔄 Web Share API試行開始');
-      
-      return new Promise((resolve) => {
-        canvas.toBlob(async (blob) => {
-          if (!blob) {
-            console.error('画像データの生成に失敗');
-            resolve(this.downloadImage(canvas, mimeType, quality, mimeType.split('/')[1]));
-            return;
-          }
-          
-          console.log('📱 ブラウザ情報:', {
-            userAgent: navigator.userAgent,
-            hasShare: !!navigator.share,
-            hasCanShare: !!navigator.canShare
-          });
-          
-          // iPadでの共有を最優先で試行
-          if (navigator.share && (/iPad/i.test(navigator.userAgent) || /iPhone/i.test(navigator.userAgent))) {
-            try {
-              const file = new File([blob], `floor-plan-${Date.now()}.${mimeType.split('/')[1]}`, {
-                type: mimeType,
-                lastModified: Date.now()
-              });
-              
-              const shareData = {
-                files: [file],
-                title: '間取り図',
-                text: '作成した間取り図です'
-              };
-              
-              console.log('📤 ネイティブ共有を試行:', shareData);
-              
-              // canShareチェックを緩和
-              if (!navigator.canShare || navigator.canShare(shareData)) {
-                await navigator.share(shareData);
-                console.log('✅ ネイティブ共有成功！');
-                resolve(true);
-                return;
-              } else {
-                console.warn('⚠️ canShare()がfalseを返しました');
-              }
-              
-            } catch (shareError) {
-              console.warn('❌ ネイティブ共有エラー:', {
-                name: shareError.name,
-                message: shareError.message
-              });
-              
-              if (shareError.name === 'AbortError') {
-                console.log('ℹ️ ユーザーが共有をキャンセル');
-                resolve(false);
-                return;
-              }
-            }
-          }
-          
-          // フォールバック: カスタム画像表示
-          console.log('🔄 フォールバック実行');
-          resolve(this.downloadImage(canvas, mimeType, quality, mimeType.split('/')[1]));
-          
-        }, mimeType, quality);
-      });
-    } catch (error) {
-      console.error('❌ Web Share API全体エラー:', error);
-      return this.downloadImage(canvas, mimeType, quality, mimeType.split('/')[1]);
-    }
-  }
-
-  // フォールバック: 通常のダウンロード
-  downloadImage(canvas, mimeType, quality, format) {
-    try {
-      const dataURL = canvas.toDataURL(mimeType, quality);
-      
-      // iPadでの専用処理
-      if (/iPad|iPhone|iPod/i.test(navigator.userAgent)) {
-        // iPadの場合：長押しで保存できる画像表示
-        this.showImageForSaving(dataURL);
-        return true;
-      } else if ('ontouchstart' in window) {
-        // その他のモバイル：ダウンロード属性付きリンク
-        this.triggerMobileDownload(dataURL, format);
-        return true;
-      } else {
-        // デスクトップ環境：従来のダウンロード方式  
-        const link = document.createElement('a');
-        link.download = `floor-plan-${new Date().toISOString().slice(0,10)}.${format}`;
-        link.href = dataURL;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        console.log('✅ 画像ダウンロード完了（デスクトップ）');
-        return true;
-      }
-      
-    } catch (error) {
-      console.error('画像ダウンロードエラー:', error);
-      return false;
-    }
-  }
-
-  // iPad用：長押しで保存できる画像を表示
-  showImageForSaving(dataURL) {
-    // オーバーレイを作成
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.9);
-      z-index: 10000;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-      box-sizing: border-box;
-    `;
-    
-    // 説明テキスト
-    const instruction = document.createElement('div');
-    instruction.style.cssText = `
-      color: white;
-      font-size: 18px;
-      text-align: center;
-      margin-bottom: 20px;
-      line-height: 1.5;
-    `;
-    instruction.textContent = '画像を長押しして「画像を保存」を選択してください';
-    
-    // 画像要素
-    const img = document.createElement('img');
-    img.src = dataURL;
-    img.style.cssText = `
-      max-width: 90%;
-      max-height: 70%;
-      border: 2px solid white;
-      border-radius: 8px;
-    `;
-    
-    // 閉じるボタン
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = '×';
-    closeBtn.style.cssText = `
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      background: white;
-      border: none;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      font-size: 24px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `;
-    
-    closeBtn.onclick = () => {
-      document.body.removeChild(overlay);
-    };
-    
-    // 背景クリックで閉じる
-    overlay.onclick = (e) => {
-      if (e.target === overlay) {
-        document.body.removeChild(overlay);
-      }
-    };
-    
-    overlay.appendChild(instruction);
-    overlay.appendChild(img);
-    overlay.appendChild(closeBtn);
-    document.body.appendChild(overlay);
-    
-    console.log('✅ iPad用画像表示完了（長押しで保存）');
-  }
-
-  // モバイル用ダウンロード
-  triggerMobileDownload(dataURL, format) {
-    const link = document.createElement('a');
-    link.href = dataURL;
-    link.download = `floor-plan-${new Date().toISOString().slice(0,10)}.${format}`;
-    link.style.display = 'none';
-    
-    document.body.appendChild(link);
-    
-    // タッチイベントを模擬
-    const event = new MouseEvent('click', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    });
-    
-    link.dispatchEvent(event);
-    document.body.removeChild(link);
-    
-    console.log('✅ モバイル用ダウンロード実行');
-  }
-
-  // PDF出力（既存の関数名を明確化）機能
-  async exportToPDF() {
-    try {
-      console.log('PDF出力開始 - デバイス情報:', {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-      });
-
-      // jsPDFライブラリをタブレット対応で読み込み
-      let jsPDF;
-      try {
-        // 動的インポートを試行
-        const jsPDFModule = await import('jspdf');
-        jsPDF = jsPDFModule.jsPDF;
-        console.log('jsPDF動的インポート成功');
-      } catch (importError) {
-        console.warn('jsPDF動的インポート失敗、グローバル参照を試行:', importError);
-        // フォールバック: グローバルオブジェクトから取得
-        if (window.jspdf && window.jspdf.jsPDF) {
-          jsPDF = window.jspdf.jsPDF;
-          console.log('jsPDFグローバル参照成功');
-        } else if (window.jsPDF) {
-          jsPDF = window.jsPDF;
-          console.log('jsPDF直接参照成功');
-        } else {
-          throw new Error('jsPDFライブラリが見つかりません');
-        }
-      }
-
-      // PDF設定（A4サイズ、縦向き）
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      console.log('PDF作成成功');
-      
-      // A4縦向きサイズ（210mm × 297mm）
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-      const margin = 15; // 余白
-      const headerHeight = 20; // ヘッダー高さ
-      const footerHeight = 0; // フッター削除
-      
-      // 背景を白に設定
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, pdfWidth, pdfHeight, 'F');
-      
-      // ヘッダーを追加
-      await this.addPDFHeader(pdf, pdfWidth, margin, headerHeight);
-      
-      // 指定範囲を最適化されたマス数でキャプチャ（グリッド線も含む）
-      // A4の利用可能エリア比率に合わせて最適化
-      const availablePDFWidth = pdfWidth - (margin * 2); // 180mm
-      const availablePDFHeight = pdfHeight - (margin * 2) - headerHeight; // 252mm
-      const optimalRatio = availablePDFWidth / availablePDFHeight; // 約0.714
-      
-      // キャプチャ範囲：中心を合わせるために横34マスに固定（2倍に拡大、偶数）
-      const captureHeightMas = 48; // 縦マス数（A4比率に近づける）
-      const captureWidthMas = 34; // 横マス数（2倍、偶数、中心を0マスに）
-      
-      const captureWidth = captureWidthMas * this.gridSize;   
-      const captureHeight = captureHeightMas * this.gridSize; 
-      
-      console.log('PDF キャプチャ範囲（最適化）:', {
-        マス数: { width: captureWidthMas, height: captureHeightMas },
-        ピクセル: { width: captureWidth, height: captureHeight },
-        アスペクト比: (captureWidth / captureHeight).toFixed(3),
-        PDF最適比: optimalRatio.toFixed(3)
-      });
-      
-      // グリッドに合わせたキャプチャ開始位置（中心を0,0に）
-      const halfGrid = this.gridSize / 2;
-      const startX = -captureWidth / 2;  // 中心
-      const startY = -captureHeight / 2; // 中心
-      
-      // 指定範囲をキャプチャするための一時キャンバスを作成（改善版）
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d', { 
-        alpha: false, // アルファチャンネルを無効にして安定性向上
-        willReadFrequently: true // 頻繁な読み取りを最適化
-      });
-      
-      // アスペクト比を保ったままキャンバスサイズを制限
-      const maxSize = 4096;
-      const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
-      const safeWidth = Math.round(captureWidth * pixelScale);
-      const safeHeight = Math.round(captureHeight * pixelScale);
-
-      tempCanvas.width = safeWidth;
-      tempCanvas.height = safeHeight;
-
-      console.log('一時キャンバス作成:', {
-        requestedSize: { width: captureWidth, height: captureHeight },
-        actualSize: { width: safeWidth, height: safeHeight },
-        pixelScale,
-        context: tempCtx ? 'OK' : 'ERROR'
-      });
-
-      try {
-        tempCtx.fillStyle = 'white';
-        tempCtx.fillRect(0, 0, safeWidth, safeHeight);
-        tempCtx.imageSmoothingEnabled = true;
-        tempCtx.imageSmoothingQuality = 'high';
-        // 世界座標 → ピクセルのスケーリング（縦横同じ倍率なのでアスペクト保持）
-        tempCtx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
-      } catch (canvasError) {
-        console.error('キャンバス初期化エラー:', canvasError);
-        throw new Error('キャンバスの初期化に失敗しました');
-      }
-
-      // グリッドとパスには「世界座標サイズ」を渡す（スケールは ctx で適用）
-      try {
-        this.drawGridOnContext(tempCtx, captureWidth, captureHeight);
-        console.log('グリッド描画完了');
-      } catch (gridError) {
-        console.warn('グリッド描画エラー:', gridError);
-      }
-
-      try {
-        this.redrawPathsOnContext(tempCtx, startX, startY, captureWidth, captureHeight);
-        console.log('パス描画完了');
-      } catch (pathError) {
-        console.warn('パス描画エラー:', pathError);
-      }
-      
-      console.log('PDF用描画データ:', {
-        pathCount: this.allPaths.length,
-        captureArea: { startX, startY, width: captureWidth, height: captureHeight },
-        canvasInfo: {
-          canvasWidth: this.canvas.width,
-          canvasHeight: this.canvas.height,
-          translateX: this.translateX,
-          translateY: this.translateY,
-          scale: this.scale
-        },
-        samplePaths: this.allPaths.slice(0, 3).map(p => ({
-          type: p.type,
-          tool: p.tool,
-          start: p.startPoint,
-          end: p.endPoint
-        }))
-      });
-      
-      // 一時キャンバスからDataURLを取得（エラーハンドリング強化）
-      let dataURL;
-      try {
-        // キャンバスの状態を詳細検証
-        if (!tempCanvas) {
-          throw new Error('一時キャンバスがnullです');
-        }
-        if (tempCanvas.width === 0 || tempCanvas.height === 0) {
-          throw new Error(`一時キャンバスサイズが無効です: ${tempCanvas.width}x${tempCanvas.height}`);
-        }
-        if (!tempCtx) {
-          throw new Error('一時キャンバスコンテキストが無効です');
-        }
-        
-        // 描画完了を確実に待つ
-        await new Promise((resolve, reject) => {
-          try {
-            // ImageDataの取得テスト（小さな範囲で）
-            const testImageData = tempCtx.getImageData(0, 0, Math.min(10, tempCanvas.width), Math.min(10, tempCanvas.height));
-            if (!testImageData || !testImageData.data) {
-              throw new Error('ImageDataの取得に失敗しました');
-            }
-            console.log('ImageData取得テスト成功:', testImageData.data.length);
-            setTimeout(resolve, 200); // 描画完了を待つ
-          } catch (testError) {
-            reject(new Error('ImageData取得テストに失敗: ' + testError.message));
-          }
-        });
-        
-        // 複数の方法でPNG生成を試行
-        const quality = 0.95; // 品質を少し下げて安定性向上
-        
-        // 方法1: デフォルトのPNG生成
-        try {
-          dataURL = tempCanvas.toDataURL('image/png', quality);
-          if (!dataURL || dataURL.length < 100) {
-            throw new Error('PNG生成結果が不正です');
-          }
-          console.log('PNG生成成功 (方法1)');
-        } catch (png1Error) {
-          console.warn('PNG生成失敗 (方法1):', png1Error);
-          
-          // 方法2: WebP形式で試行
-          try {
-            dataURL = tempCanvas.toDataURL('image/webp', quality);
-            if (!dataURL || dataURL.length < 100) {
-              throw new Error('WebP生成結果が不正です');
-            }
-            console.log('WebP生成成功 (方法2)');
-          } catch (webpError) {
-            console.warn('WebP生成失敗 (方法2):', webpError);
-            
-            // 方法3: JPEG形式で試行
-            try {
-              dataURL = tempCanvas.toDataURL('image/jpeg', quality);
-              if (!dataURL || dataURL.length < 100) {
-                throw new Error('JPEG生成結果が不正です');
-              }
-              console.log('JPEG生成成功 (方法3)');
-            } catch (jpegError) {
-              throw new Error(`全ての画像形式で生成失敗: PNG(${png1Error.message}), WebP(${webpError.message}), JPEG(${jpegError.message})`);
-            }
-          }
-        }
-        
-        // DataURLの最終検証
-        if (!dataURL.startsWith('data:image/')) {
-          throw new Error('生成されたDataURLが無効です');
-        }
-        
-        console.log('画像生成最終成功:', {
-          format: dataURL.substring(5, dataURL.indexOf(';')),
-          size: dataURL.length,
-          canvasSize: { width: tempCanvas.width, height: tempCanvas.height }
-        });
-        
-      } catch (imageError) {
-        console.error('画像生成完全失敗:', imageError);
-        throw new Error('画像生成に失敗しました: ' + imageError.message);
-      }
-      
-      // キャプチャした範囲のサイズを使用
-      const canvasWidth = captureWidth;
-      const canvasHeight = captureHeight;
-      
-      // コンテンツエリアのサイズ計算
-      const availableWidth = pdfWidth - (margin * 2);
-      const availableHeight = pdfHeight - (margin * 2) - headerHeight - footerHeight;
-      
-      // アスペクト比を維持しつつ、利用可能スペースを最大活用
-      const scaleX = availableWidth / canvasWidth;
-      const scaleY = availableHeight / canvasHeight;
-      const scale = Math.min(scaleX, scaleY); // 小さい方のスケールを使用してアスペクト比維持
-      
-      console.log('PDF スケーリング情報:', {
-        キャプチャサイズ: { width: canvasWidth, height: canvasHeight },
-        利用可能サイズ: { width: availableWidth, height: availableHeight },
-        スケール: { x: scaleX, y: scaleY, 選択: scale },
-        最終サイズ: { width: canvasWidth * scale, height: canvasHeight * scale }
-      });
-      
-      const finalWidth = canvasWidth * scale;
-      const finalHeight = canvasHeight * scale;
-      
-      // 中央配置するための座標計算（余白を均等に配分）
-      const x = margin + (availableWidth - finalWidth) / 2;
-      const y = margin + headerHeight + (availableHeight - finalHeight) / 2;
-      
-      console.log('PDF配置情報:', {
-        キャプチャサイズ: { width: canvasWidth, height: canvasHeight },
-        利用可能エリア: { width: availableWidth, height: availableHeight },
-        スケール: { scaleX, scaleY, 使用: scale },
-        最終サイズ: { width: finalWidth, height: finalHeight },
-        配置位置: { x, y },
-        余白: { 
-          左右: (availableWidth - finalWidth) / 2, 
-          上下: (availableHeight - finalHeight) / 2 
-        }
-      });
-      
-      // キャンバスの画像をPDFに追加（アスペクト比維持で左上配置）
-      // 画像形式を自動判定
-      let imageFormat = 'PNG'; // デフォルト
-      if (dataURL.startsWith('data:image/jpeg')) {
-        imageFormat = 'JPEG';
-      } else if (dataURL.startsWith('data:image/webp')) {
-        imageFormat = 'WEBP';
-      }
-      
-      console.log('PDF画像追加:', { format: imageFormat, size: { width: finalWidth, height: finalHeight } });
-      pdf.addImage(dataURL, imageFormat, x, y, finalWidth, finalHeight);
-      
-      // ヘッダーごと囲む枠を描画
-      pdf.setDrawColor(226, 107, 10); // 枠の色を #e26b0a に変更 (RGB: 226, 107, 10)
-      pdf.setLineWidth(1); // 線の太さを細く (1mm)
-      // ヘッダーの上から画像の下まで囲む
-      const frameX = margin;
-      const frameY = margin;
-      const frameWidth = pdfWidth - (margin * 2);
-      const frameHeight = headerHeight + finalHeight;
-      pdf.rect(frameX, frameY, frameWidth, frameHeight);
-      
-      // フッターを削除
-      // this.addPDFFooter(pdf, pdfWidth, pdfHeight, margin, footerHeight);
-      
-      // logo.pngを右下に配置
-      await this.addPDFLogo(pdf, pdfWidth, pdfHeight, margin, headerHeight, finalWidth, finalHeight);
-      
-      // PDFを保存（タブレット対応）
-      const now = new Date();
-      const filename = `間取り図_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
-      
-      try {
-        // タブレット/モバイル対応のPDF保存
-        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-          console.log('モバイル/タブレットデバイス検出');
-          // モバイル端末の場合は、Blobとして保存を試行
-          const pdfBlob = pdf.output('blob');
-          
-          // File API対応チェック
-          if (window.saveAs) {
-            // FileSaver.jsがある場合
-            window.saveAs(pdfBlob, filename);
-          } else if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdfBlob], filename, { type: 'application/pdf' })] })) {
-            // Web Share API対応の場合
-            const file = new File([pdfBlob], filename, { type: 'application/pdf' });
-            await navigator.share({
-              title: '間取り図PDF',
-              files: [file]
-            });
-          } else {
-            // フォールバック: ダウンロードリンク作成
-            const url = URL.createObjectURL(pdfBlob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-          }
-        } else {
-          // デスクトップの場合は従来通り
-          pdf.save(filename);
-        }
-        
-        console.log('PDF出力完了:', filename);
-        
-        // 成功メッセージ（タブレット用）
-        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-          alert('PDFが作成されました。ダウンロードフォルダまたは共有メニューを確認してください。');
-        }
-        
-      } catch (saveError) {
-        console.error('PDF保存エラー:', saveError);
-        // エラー時のフォールバック
-        try {
-          pdf.save(filename);
-        } catch (fallbackError) {
-          throw new Error(`PDF保存に失敗しました: ${saveError.message}`);
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('PDF出力エラー:', error);
-      alert('PDF出力中にエラーが発生しました: ' + error.message);
-      return false;
-    }
-  }
-
-  // PDFヘッダーを追加（青い背景に白文字で「間取り図」）
-  async addPDFHeader(pdf, pdfWidth, margin, headerHeight) {
-    // ヘッダー背景（青色 - #0066cc）
-    pdf.setFillColor(0, 102, 204);
-    pdf.rect(margin, margin, pdfWidth - (margin * 2), headerHeight, 'F');
-    
-    // 「間取り図」テキストを左上に配置（表示改善）
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // テキストサイズを大きくして読みやすく
-    const fontSize = 18; // 16 → 18に変更
-    const titleText = '間取り図';
-    
-    // 高解像度キャンバスで美しく描画
-    const pixelRatio = 3; // 高解像度対応
-    ctx.font = `bold ${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`;
-    
-    // 実際のテキスト幅を測定
-    const measuredWidth = ctx.measureText(titleText).width;
-    const textHeight = fontSize;
-    
-    // キャンバスサイズを高解像度で設定
-    canvas.width = (measuredWidth + 20) * pixelRatio; // 左右に10pxずつ余白
-    canvas.height = (textHeight + 12) * pixelRatio; // 上下に6pxずつ余白
-    
-    // 高解像度対応でスケール
-    ctx.scale(pixelRatio, pixelRatio);
-    
-    // フォントを再設定
-    ctx.font = `bold ${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`;
-    ctx.fillStyle = '#fccc9e'; // 薄いオレンジ色に変更
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.textRenderingOptimization = 'optimizeQuality';
-    
-    // アンチエイリアスを有効にして滑らかに
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    
-    // 背景をクリア
-    ctx.clearRect(0, 0, canvas.width / pixelRatio, canvas.height / pixelRatio);
-    
-    // 「間取り図」を描画
-    ctx.fillText(titleText, 10, 6);
-    
-    // キャンバスを画像として取得（エラーハンドリング追加）
-    let textImageData;
-    try {
-      // キャンバスの状態を検証
-      if (!canvas || canvas.width === 0 || canvas.height === 0) {
-        throw new Error('テキストキャンバスが無効です');
-      }
-      
-      // 描画完了を待つ
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      textImageData = canvas.toDataURL('image/png', 1.0);
-      
-      // DataURLの有効性を検証
-      if (!textImageData || !textImageData.startsWith('data:image/png;base64,')) {
-        throw new Error('テキストPNG生成に失敗しました');
-      }
-      
-    } catch (textPngError) {
-      console.error('テキストPNG生成エラー:', textPngError);
-      // フォールバック: JPEG形式
-      try {
-        textImageData = canvas.toDataURL('image/jpeg', 0.95);
-      } catch (textJpegError) {
-        console.error('テキストJPEG生成も失敗:', textJpegError);
-        // テキスト画像の追加をスキップ
-        console.warn('テキスト画像の追加をスキップします');
-        return; // ヘッダー処理を終了
-      }
-    }
-    
-    // PDFにテキスト画像を左上により近く配置
-    const textDisplayWidth = (measuredWidth + 20) * 0.35; // mm単位に変換
-    const textDisplayHeight = (textHeight + 12) * 0.35; // mm単位に変換
-    const imageFormat = textImageData.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-    pdf.addImage(textImageData, imageFormat, margin + 2, margin + 1, textDisplayWidth, textDisplayHeight);
-    
-    // ヘッダー下に太い線を追加（#99ccff色、6mm）
-    pdf.setDrawColor(153, 204, 255); // #99ccff (RGB: 153, 204, 255)
-    pdf.setLineWidth(6); // 太い線（6mm、12mmから半分に変更）
-    pdf.line(margin, margin + headerHeight, pdfWidth - margin, margin + headerHeight);
-  }
-
-  // PDFフッターを追加
-  addPDFFooter(pdf, pdfWidth, pdfHeight, margin, footerHeight) {
-    const footerY = pdfHeight - margin - footerHeight;
-    
-    // フッター背景（薄いグレー）
-    pdf.setFillColor(248, 248, 248);
-    pdf.rect(margin, footerY, pdfWidth - (margin * 2), footerHeight, 'F');
-    
-    // フッター枠線
-    pdf.setDrawColor(200, 200, 200);
-    pdf.setLineWidth(0.5);
-    pdf.rect(margin, footerY, pdfWidth - (margin * 2), footerHeight);
-    
-    // ページ番号（中央）
-    pdf.setFontSize(10);
-    pdf.setTextColor(100, 100, 100);
-    pdf.setFont(undefined, 'normal');
-    const pageText = '- 1 -';
-    const pageTextWidth = pdf.getTextWidth(pageText);
-    pdf.text(pageText, (pdfWidth - pageTextWidth) / 2, footerY + 8);
-    
-    // アプリケーション名（左側）
-    pdf.setFontSize(8);
-    pdf.setTextColor(120, 120, 120);
-    pdf.text('平面図描画アプリ', margin + 5, footerY + 8);
-    
-    // スケール情報（右側）
-    pdf.setFontSize(8);
-    const scaleText = 'スケール: 自動調整';
-    const scaleTextWidth = pdf.getTextWidth(scaleText);
-    pdf.text(scaleText, pdfWidth - margin - scaleTextWidth - 5, footerY + 8);
-  }
-
-  // PDFにロゴを追加（logo.pngを右下に配置）
-  async addPDFLogo(pdf, pdfWidth, pdfHeight, margin, headerHeight, contentWidth, contentHeight) {
-    try {
-      // logo.png画像を読み込み
-      const logoImg = new Image();
-      logoImg.crossOrigin = 'anonymous';
-      
-      // 画像読み込みのPromise
-      const loadImage = () => {
-        return new Promise((resolve, reject) => {
-          logoImg.onload = () => resolve(logoImg);
-          logoImg.onerror = () => reject(new Error('ロゴ画像の読み込みに失敗しました'));
-          
-          // パブリックフォルダからlogo.pngを読み込み
-          logoImg.src = '/logo.png';
-          
-          // タイムアウト設定（5秒）
-          setTimeout(() => {
-            reject(new Error('ロゴ画像の読み込みがタイムアウトしました'));
-          }, 5000);
-        });
-      };
-      
-      try {
-        // 画像読み込みを試行
-        await loadImage();
-        
-        // ロゴサイズとポジション（画像版と完全に同じ計算方法）
-        const logoHeightMm = 15; // ロゴの高さ (mm)
-        const aspectRatio = logoImg.width / logoImg.height;
-        const logoWidthMm = logoHeightMm * aspectRatio;
-        
-        // 画像版と完全に同じ計算方法（一番右下に綺麗に配置）
-        const a4WidthMm = 210;
-        const a4HeightMm = 297;
-        const marginMm = 10;
-        
-        // ロゴを一番右下に配置（マージンから5mm内側）
-        const logoMarginMm = 5; // ロゴ周りの余白
-        const logoX = a4WidthMm - marginMm - logoWidthMm - logoMarginMm;
-        const logoY = a4HeightMm - marginMm - logoHeightMm - logoMarginMm;
-        
-        // キャンバスに画像を描画してDataURLに変換
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCanvas.width = logoImg.width;
-        tempCanvas.height = logoImg.height;
-        tempCtx.drawImage(logoImg, 0, 0);
-        const logoDataURL = tempCanvas.toDataURL('image/png');
-        
-        // PDFにロゴ画像を追加（アスペクト比を維持）
-        pdf.addImage(logoDataURL, 'PNG', logoX, logoY, logoWidthMm, logoHeightMm);
-        
-        console.log('ロゴ画像をPDFに追加しました（右下端配置）:', {
-          logoSize: { width: logoWidthMm, height: logoHeightMm },
-          logoPosition: { x: logoX, y: logoY },
-          配置詳細: {
-            a4WidthMm,
-            a4HeightMm,
-            marginMm,
-            logoMarginMm,
-            計算式: {
-              logoX: `${a4WidthMm} - ${marginMm} - ${logoWidthMm} - ${logoMarginMm} = ${logoX}`,
-              logoY: `${a4HeightMm} - ${marginMm} - ${logoHeightMm} - ${logoMarginMm} = ${logoY}`
-            }
-          }
-        });
-        
-      } catch (imageError) {
-        console.warn('ロゴ画像の読み込みに失敗:', imageError.message);
-        // フォールバックロゴは表示しない
-      }
-      
-    } catch (error) {
-      console.error('ロゴ追加でエラーが発生:', error);
-      // エラーが発生してもPDF生成は続行
-    }
-  }
-
-  // 指定されたコンテキストにグリッド線を描画（PDF用・正方形グリッド確保）
-  drawGridOnContext(ctx, width, height) {
-    if (!this.snapToGrid) return;
-    
-    ctx.save();
-    
-    // PDF用のグリッドサイズを正方形に保つ（確実に160px）
-    const pdfGridSize = 160; // 固定値で正方形を保証
-    
-    console.log('PDF グリッド描画:', {
-      canvasSize: { width, height },
-      gridSize: pdfGridSize,
-      aspectRatio: width / height
-    });
-    
-    // 0.25マスのドット（40px間隔）
-    ctx.fillStyle = '#cccccc';
-    for (let x = pdfGridSize / 4; x < width; x += pdfGridSize / 4) {
-      for (let y = pdfGridSize / 4; y < height; y += pdfGridSize / 4) {
-        ctx.beginPath();
-        ctx.arc(x, y, 1, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    
-    // 0.5マス: ごく薄い細い実線（サブグリッド）
-    ctx.strokeStyle = '#ececec';
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([]);
-    for (let x = pdfGridSize / 2; x < width; x += pdfGridSize / 2) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = pdfGridSize / 2; y < height; y += pdfGridSize / 2) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-
-    // 1マス: 中庸の実線（主グリッド）
-    ctx.strokeStyle = '#bbbbbb';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);
-    for (let x = pdfGridSize; x < width; x += pdfGridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = pdfGridSize; y < height; y += pdfGridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-    
-    // 中心線（正方形グリッドに合わせて配置）
-    // 縦中心線：9マス目の中央から0.5マス左に移動（8.5マス目）
-    const centerX = Math.floor(width / 2 / pdfGridSize) * pdfGridSize;
-    // 横中心線：10.5マス目の中央から0.5マス上に移動（10マス目）
-    const centerY = Math.floor(height / 2 / pdfGridSize) * pdfGridSize;
-    
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 3;
-    
-    // 垂直中心線（8.5マス目）
-    if (centerX > 0 && centerX < width) {
-      ctx.beginPath();
-      ctx.moveTo(centerX, 0);
-      ctx.lineTo(centerX, height);
-      ctx.stroke();
-    }
-    
-    // 水平中心線（10マス目）
-    if (centerY > 0 && centerY < height) {
-      ctx.beginPath();
-      ctx.moveTo(0, centerY);
-      ctx.lineTo(width, centerY);
-      ctx.stroke();
-    }
-    
-    ctx.restore();
-  }
-
-  // 指定されたコンテキストにすべてのパスを再描画（PDF用）
-  redrawPathsOnContext(ctx, offsetX, offsetY, width, height) {
-    ctx.save();
-    
-    // クリッピング領域を設定
-    ctx.beginPath();
-    ctx.rect(0, 0, width, height);
-    ctx.clip();
-    
-    console.log(`🎯 PDF描画開始: ${this.allPaths.length}個のパスを処理中`);
-    console.log(`📏 キャプチャ範囲: x=${offsetX}, y=${offsetY}, w=${width}, h=${height}`);
-    
-    // 描画される線をカウント
-    let drawnCount = 0;
-    let skippedCount = 0;
-    
-    // すべてのパスを描画
-    for (let i = 0; i < this.allPaths.length; i++) {
-      const pathData = this.allPaths[i];
-      
-      try {
-        this.drawPathOnContext(ctx, pathData, offsetX, offsetY);
-        drawnCount++;
-      } catch (error) {
-        console.error(`❌ パス${i}描画エラー:`, error);
-        skippedCount++;
-      }
-    }
-    
-    console.log(`🎨 描画完了: 成功${drawnCount}個, 失敗${skippedCount}個`);
-    ctx.restore();
-  }
-
-  // パスが指定範囲内にあるかチェック
-  isPathInRange(pathData, offsetX, offsetY, width, height) {
-    if (!pathData) return false;
-    
-    const rangeRight = offsetX + width;
-    const rangeBottom = offsetY + height;
-    
-    if (pathData.type === 'freehand' && pathData.points) {
-      // フリーハンドの場合、いずれかの点が範囲内にあればOK
-      return pathData.points.some(point => 
-        point.x >= offsetX && point.x <= rangeRight &&
-        point.y >= offsetY && point.y <= rangeBottom
-      );
-    } else if (pathData.startPoint && pathData.endPoint) {
-      // 線、四角、円の場合、いずれかの端点が範囲内にあればOK
-      return (
-        (pathData.startPoint.x >= offsetX && pathData.startPoint.x <= rangeRight &&
-         pathData.startPoint.y >= offsetY && pathData.startPoint.y <= rangeBottom) ||
-        (pathData.endPoint.x >= offsetX && pathData.endPoint.x <= rangeRight &&
-         pathData.endPoint.y >= offsetY && pathData.endPoint.y <= rangeBottom)
-      );
-    }
-    
-    return false;
-  }
-
-  // 指定されたコンテキストに単一のパスを描画（PDF用）
-  drawPathOnContext(ctx, pathData, offsetX, offsetY) {
-    ctx.save();
-    
-    ctx.strokeStyle = pathData.strokeColor || pathData.color || '#000000';
-    ctx.lineWidth = pathData.strokeWidth || pathData.lineWidth || 2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    // シンプルに座標をそのまま使用（オフセットのみ適用）
-    
-    // ツール別の描画処理
-    if (pathData.tool === 'pen' && pathData.path) {
-      // ペンツール（フリーハンド）
-      console.log('ペンツール描画:', pathData.path.length, '点');
-      ctx.beginPath();
-      if (pathData.path.length > 0) {
-        ctx.moveTo(pathData.path[0].x - offsetX, pathData.path[0].y - offsetY);
-        for (let i = 1; i < pathData.path.length; i++) {
-          ctx.lineTo(pathData.path[i].x - offsetX, pathData.path[i].y - offsetY);
-        }
-      }
-      ctx.stroke();
-    } else if (pathData.tool === 'line' && pathData.startPoint && pathData.endPoint) {
-      // 直線ツール - 線種対応（実線/点線/矢印）- キャンバス版と完全一致
-      const x1 = pathData.startPoint.x - offsetX;
-      const y1 = pathData.startPoint.y - offsetY; // 正確な位置に修正
-      const x2 = pathData.endPoint.x - offsetX;
-      const y2 = pathData.endPoint.y - offsetY;   // 正確な位置に修正
-      
-      // 線種の判定（キャンバス版と同じロジック）
-      const lineStyle = pathData.lineStyle || (pathData.isDashed ? 'dashed' : (pathData.hasArrow ? 'arrow' : 'solid'));
-      
-      console.log(`直線描画: 線種=${lineStyle}, 元座標(${pathData.startPoint.x}, ${pathData.startPoint.y}) → PDF座標(${x1}, ${y1})`);
-      
-      // 線種に応じた描画（キャンバス版と完全一致）
-      if (lineStyle === 'dashed' || pathData.isDashed) {
-        // 点線 - キャンバス版と同じパターン
-        ctx.save();
-        // キャンバス版と同じ点線パターン: 20px線, 15px空白
-        const dashLength = 20;
-        const gapLength = 15;
-        ctx.setLineDash([dashLength, gapLength]);
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-        ctx.setLineDash([]); // リセット
-        ctx.restore();
-        console.log('点線描画完了（キャンバス版準拠）');
-        
-      } else if (lineStyle === 'arrow' || pathData.hasArrow) {
-        // 矢印 - キャンバス版と完全一致
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-        
-        // 矢印ヘッドを描画（キャンバス版と同じメソッドを使用）
-        this.drawArrowHeadOnContext(ctx, x1, y1, x2, y2);
-        console.log('矢印描画完了（キャンバス版準拠）');
-        
-      } else {
-        // 実線
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-        console.log('実線描画完了');
-      }
-    } else if (pathData.tool === 'rectangle' && pathData.startPoint && pathData.endPoint) {
-      // 四角形ツール
-      console.log('四角形描画');
-      ctx.beginPath();
-      ctx.rect(pathData.startPoint.x - offsetX, pathData.startPoint.y - offsetY, 
-               pathData.endPoint.x - pathData.startPoint.x, 
-               pathData.endPoint.y - pathData.startPoint.y);
-      ctx.stroke();
-    } else if (pathData.tool === 'circle' && pathData.startPoint && pathData.endPoint) {
-      // 円ツール
-      console.log('円描画');
-      const centerX = (pathData.startPoint.x + pathData.endPoint.x) / 2 - offsetX;
-      const centerY = (pathData.startPoint.y + pathData.endPoint.y) / 2 - offsetY; // 正確な位置に修正
-      const radius = Math.sqrt(
-        Math.pow(pathData.endPoint.x - pathData.startPoint.x, 2) + 
-        Math.pow(pathData.endPoint.y - pathData.startPoint.y, 2)
-      ) / 2;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (pathData.tool === 'door' && pathData.startPoint && pathData.endPoint) {
-      // 扉ツール - 専用描画メソッドを使用
-      console.log('🚪 扉描画開始:', {
-        doorType: pathData.doorType,
-        start: pathData.startPoint,
-        end: pathData.endPoint,
-        調整後start: { x: pathData.startPoint.x - offsetX, y: pathData.startPoint.y - offsetY },
-        調整後end: { x: pathData.endPoint.x - offsetX, y: pathData.endPoint.y - offsetY },
-        pathDataKeys: Object.keys(pathData),
-        fullPathData: pathData
-      });
-      
-      // doorTypeが未定義の場合はデフォルト値を設定
-      if (!pathData.doorType) {
-        console.warn('⚠️ doorTypeが未定義です。デフォルト値"single"を使用します');
-        pathData.doorType = 'single';
-      }
-      
-      ctx.save();
-      
-      // 座標をPDF用に調整
-      const adjustedStart = {
-        x: pathData.startPoint.x - offsetX,
-        y: pathData.startPoint.y - offsetY
-      };
-      const adjustedEnd = {
-        x: pathData.endPoint.x - offsetX,
-        y: pathData.endPoint.y - offsetY
-      };
-      
-      // PDF用扉描画
-      this.drawDoorOnContext(ctx, adjustedStart, adjustedEnd, pathData);
-      ctx.restore();
-      console.log('扉描画完了');
-      
-    } else if (pathData.tool === 'stairs' && pathData.startPoint && pathData.endPoint) {
-      // 階段ツール - 専用描画メソッドを使用
-      console.log('階段描画');
-      ctx.save();
-      
-      // 座標をPDF用に調整
-      const adjustedStart = {
-        x: pathData.startPoint.x - offsetX,
-        y: pathData.startPoint.y - offsetY
-      };
-      const adjustedEnd = {
-        x: pathData.endPoint.x - offsetX,
-        y: pathData.endPoint.y - offsetY
-      };
-      
-      // PDF用階段描画
-      this.drawStairsOnContext(ctx, adjustedStart, adjustedEnd, pathData);
-      ctx.restore();
-    } else if (pathData.tool === 'polyline-grid' && pathData.path) {
-      // 一筆書きモード（グリッド連続直線）- ペンツールと同じ描画方式
-      console.log('✏️ 一筆書きモード描画:', pathData.path.length, '点');
-      ctx.beginPath();
-      if (pathData.path.length > 0) {
-        ctx.moveTo(pathData.path[0].x - offsetX, pathData.path[0].y - offsetY);
-        for (let i = 1; i < pathData.path.length; i++) {
-          ctx.lineTo(pathData.path[i].x - offsetX, pathData.path[i].y - offsetY);
-        }
-      }
-      ctx.stroke();
-    } else if (pathData.tool === 'textbox' && pathData.x && pathData.y) {
-      // テキストボックス描画
-      console.log('テキストボックス描画:', pathData);
-      ctx.save();
-      
-      // 座標をPDF用に調整
-      const adjustedX = pathData.x - offsetX;
-      const adjustedY = pathData.y - offsetY;
-      
-      // PDF用テキストボックス描画
-      this.drawTextBoxOnContext(ctx, adjustedX, adjustedY, pathData);
-      ctx.restore();
-    } else if (pathData.tool === 'fill') {
-      // 塗りつぶしツール描画
-      console.log('塗りつぶし描画:', pathData);
-      const pattern = pathData.fillPattern || 'solid';
-      if (pathData.positions) {
-        pathData.positions.forEach(pos => {
-          const posPattern = pos.pattern || pattern;
-          const adjustedX = pos.x - offsetX;
-          const adjustedY = pos.y - offsetY;
-          
-          if (posPattern === 'diagonal') {
-            // 斜線パターン
-            ctx.save();
-            
-            // 背景に薄い色を塗る
-            ctx.fillStyle = pathData.strokeColor + '20'; // 透明度12.5%
-            ctx.fillRect(adjustedX, adjustedY, pos.size, pos.size);
-            
-            // クリッピング領域を設定
-            ctx.beginPath();
-            ctx.rect(adjustedX, adjustedY, pos.size, pos.size);
-            ctx.clip();
-            
-            // 斜線を描画
-            ctx.strokeStyle = pathData.strokeColor;
-            ctx.lineWidth = 2;
-            const spacing = 16;
-            ctx.beginPath();
-            for (let offset = -pos.size; offset < pos.size * 2; offset += spacing) {
-              ctx.moveTo(adjustedX + offset, adjustedY);
-              ctx.lineTo(adjustedX + offset + pos.size, adjustedY + pos.size);
-            }
-            ctx.stroke();
-            
-            ctx.restore();
-            
-            // 枠線を描画
-            ctx.strokeStyle = pathData.strokeColor;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(adjustedX, adjustedY, pos.size, pos.size);
-          } else {
-            // 塗りつぶし
-            ctx.fillStyle = pathData.strokeColor;
-            ctx.fillRect(adjustedX, adjustedY, pos.size, pos.size);
-          }
-        });
-      }
-    }
-    // 旧形式との互換性のため、type プロパティもチェック
-    else if (pathData.type === 'line' && pathData.startPoint && pathData.endPoint) {
-      ctx.beginPath();
-      ctx.moveTo(pathData.startPoint.x - offsetX, pathData.startPoint.y - offsetY);
-      ctx.lineTo(pathData.endPoint.x - offsetX, pathData.endPoint.y - offsetY);
-      ctx.stroke();
-    } else if (pathData.type === 'rectangle' && pathData.startPoint && pathData.endPoint) {
-      ctx.beginPath();
-      ctx.rect(pathData.startPoint.x - offsetX, pathData.startPoint.y - offsetY, 
-               pathData.endPoint.x - pathData.startPoint.x, 
-               pathData.endPoint.y - pathData.startPoint.y);
-      ctx.stroke();
-    } else if (pathData.type === 'circle' && pathData.startPoint && pathData.endPoint) {
-      const centerX = (pathData.startPoint.x + pathData.endPoint.x) / 2 - offsetX;
-      const centerY = (pathData.startPoint.y + pathData.endPoint.y) / 2 - offsetY;
-      const radius = Math.sqrt(
-        Math.pow(pathData.endPoint.x - pathData.startPoint.x, 2) + 
-        Math.pow(pathData.endPoint.y - pathData.startPoint.y, 2)
-      ) / 2;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (pathData.type === 'freehand' && pathData.points) {
-      ctx.beginPath();
-      if (pathData.points.length > 0) {
-        ctx.moveTo(pathData.points[0].x - offsetX, pathData.points[0].y - offsetY);
-        for (let i = 1; i < pathData.points.length; i++) {
-          ctx.lineTo(pathData.points[i].x - offsetX, pathData.points[i].y - offsetY);
-        }
-      }
-      ctx.stroke();
-    }
-    
-    ctx.restore();
-  }
-
-  // PDF用扉描画メソッド
-  drawDoorOnContext(ctx, start, end, pathData) {
-    console.log('🚪 扉描画メソッド呼び出し:', { 
-      start, 
-      end, 
-      doorType: pathData.doorType,
-      pathDataKeys: Object.keys(pathData),
-      strokeWidth: pathData.strokeWidth,
-      strokeColor: pathData.strokeColor
-    });
-    
-    ctx.lineWidth = pathData.strokeWidth || 2;
-    ctx.strokeStyle = pathData.strokeColor || '#000000';
-    
-    const doorType = pathData.doorType || 'single';
-    console.log('🚪 扉タイプ確定:', doorType);
-    
-    // 元の実装と同じ四方向固定の扉描画
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    
-    console.log('🚪 方向ベクトル:', { dx, dy });
-    
-    // 固定扉幅（0.5マス = 80px）※gridSize=160pxの0.5倍
-    const fixedDoorWidth = 80;
-    
-    // 四方向のうち最も近い方向を決定
-    let doorStart, doorEnd, direction;
-    
-    if (Math.abs(dx) > Math.abs(dy)) {
-      // 水平方向（左右）
-      if (dx > 0) {
-        direction = 'horizontal-right';
-        doorStart = { x: start.x, y: start.y };
-        doorEnd = { x: start.x + fixedDoorWidth, y: start.y };
-      } else {
-        direction = 'horizontal-left';
-        doorStart = { x: start.x, y: start.y };
-        doorEnd = { x: start.x - fixedDoorWidth, y: start.y };
-      }
-    } else {
-      // 垂直方向（上下）- PDF座標系に合わせて修正
-      if (dy > 0) {
-        // PDFでは下向きが正なので、下向きの扉
-        direction = 'vertical-down';
-        doorStart = { x: start.x, y: start.y };
-        doorEnd = { x: start.x, y: start.y + fixedDoorWidth };
-      } else {
-        // PDFでは上向きが負なので、上向きの扉
-        direction = 'vertical-up';
-        doorStart = { x: start.x, y: start.y };
-        doorEnd = { x: start.x, y: start.y - fixedDoorWidth };
-      }
-    }
-    
-    console.log('決定された方向:', direction);
-    console.log('扉の座標:', { doorStart, doorEnd });
-    
-    // 垂直方向のベクトル
-    const perpDx = direction.startsWith('horizontal') ? 0 : 1;
-    const perpDy = direction.startsWith('vertical') ? 0 : 1;
-    
-    // 扉の種類に応じて描画
-    console.log('描画処理開始:', doorType);
-    switch (doorType) {
-      case 'single':
-        this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth, 'right');
-        break;
-      case 'double':
-        this.drawDoubleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
-        break;
-      case 'smallbox':
-        this.drawSmallBoxOnContext(ctx, doorStart, doorEnd, pathData.openingSize);
-        break;
-      case 'circle':
-        this.drawCircleSymbolOnContext(ctx, doorStart, doorEnd);
-        break;
-      case 'square':
-        this.drawSquareSymbolOnContext(ctx, doorStart, doorEnd);
-        break;
-      case 'cross':
-        this.drawCrossSymbolOnContext(ctx, doorStart, doorEnd);
-        break;
-      case 'single-left':
-        this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth, 'left');
-        break;
-      case 'single-right':
-        this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth, 'right');
-        break;
-      default:
-        console.log('未知の扉タイプ:', doorType);
-        // デフォルトで片開き戸を描画
-        this.drawSingleDoorOnContext(ctx, doorStart, doorEnd, perpDx, perpDy, fixedDoorWidth);
-        break;
-    }
-    console.log('扉描画メソッド完了');
-  }
-
-  // PDF用片開き扉描画
-  drawSingleDoorOnContext(ctx, start, end, perpDx, perpDy, width, direction) {
-    console.log('🚪➡️ 片開き扉描画開始:', { start, end, perpDx, perpDy, width, direction });
-    
-    // 座標を整数化（キャンバス版と同じ）
-    const intStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
-    const intEnd = { x: Math.floor(end.x), y: Math.floor(end.y) };
-    
-    // 扉開口部の枠線（背景白塗り）- キャンバス版と同じ
-    ctx.save();
-    
-    // まず太い背景色線で壁を上書き（背景）- キャンバス版と同じ
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
-    ctx.beginPath();
-    ctx.moveTo(intStart.x, intStart.y);
-    ctx.lineTo(intEnd.x, intEnd.y);
-    ctx.stroke();
-    
-    // 2回描画（キャンバス版と同じ）
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
-    ctx.beginPath();
-    ctx.moveTo(intStart.x, intStart.y);
-    ctx.lineTo(intEnd.x, intEnd.y);
-    ctx.stroke();
-    
-    ctx.restore();
-    
-    // ヒンジ位置（右開きが標準）- キャンバス版と同じロジック
-    const hingePoint = direction === 'left' ? intEnd : intStart;
-    const freePoint = direction === 'left' ? intStart : intEnd;
-    
-    // 扉の開き弧（90度の四分円）- 扉の幅と同じ半径
-    const radius = width; // 扉の幅全体をカバー
-    const baseAngle = Math.atan2(intEnd.y - intStart.y, intEnd.x - intStart.x);
-    
-    // 開き方向の決定 - キャンバス版と完全に同じ
-    let openAngle;
-    if (direction === 'left') {
-      openAngle = baseAngle + Math.PI/2;
-    } else {
-      openAngle = baseAngle - Math.PI/2;
-    }
-    
-    // 開き弧を描画（細い線）- 端から端まで - キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(hingePoint.x, hingePoint.y, radius, 
-             Math.min(baseAngle, openAngle), 
-             Math.max(baseAngle, openAngle));
-    ctx.stroke();
-    ctx.restore();
-    
-    // 開いた扉の位置（細い線）- キャンバス版と同じ
-    const doorEndX = Math.floor(hingePoint.x + Math.cos(openAngle) * radius);
-    const doorEndY = Math.floor(hingePoint.y + Math.sin(openAngle) * radius);
-    
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    ctx.moveTo(hingePoint.x, hingePoint.y);
-    ctx.lineTo(doorEndX, doorEndY);
-    ctx.stroke();
-    ctx.restore();
-    
-    console.log('🚪➡️ 片開き扉描画完了');
-  }
-
-  // PDF用両開き扉描画
-  drawDoubleDoorOnContext(ctx, start, end, perpDx, perpDy, width) {
-    console.log('🚪↔️ 両開き扉描画開始:', { start, end, perpDx, perpDy, width });
-    
-    // 座標を整数化（キャンバス版と同じ）
-    const intStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
-    const intEnd = { x: Math.floor(end.x), y: Math.floor(end.y) };
-    
-    // 扉開口部の枠線（壁と同じ太さの6px、中を背景色で塗りつぶし）- キャンバス版と同じ
-    ctx.save();
-    
-    // まず太い背景色線で壁を上書き（背景）- キャンバス版と同じ
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = this.getBackgroundColor(); // ダークモード対応背景色
-    ctx.beginPath();
-    ctx.moveTo(intStart.x, intStart.y);
-    ctx.lineTo(intEnd.x, intEnd.y);
-    ctx.stroke();
-    
-    ctx.restore();
-    
-    const midX = Math.floor((intStart.x + intEnd.x) / 2);
-    const midY = Math.floor((intStart.y + intEnd.y) / 2);
-    const halfWidth = width / 2;
-    
-    // 中央分割マーク（垂直の短い線）- 円弧と同じ細さ - キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1; // 円弧と同じ細さ
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    const markSize = 4;
-    ctx.moveTo(midX + perpDx * markSize, midY + perpDy * markSize);
-    ctx.lineTo(midX - perpDx * markSize, midY - perpDy * markSize);
-    ctx.stroke();
-    ctx.restore();
-    
-    const baseAngle = Math.atan2(intEnd.y - intStart.y, intEnd.x - intStart.x);
-    const radius = halfWidth; // 半分の幅と同じ半径
-    
-    // 左側扉の開き弧（90度）- 中央から外側に開く - キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    const leftOpenAngle = baseAngle - Math.PI/2; // 時計回りに90度
-    // 角度の大小を正しく指定 - キャンバス版と同じ
-    ctx.arc(intStart.x, intStart.y, radius, 
-             Math.min(baseAngle, leftOpenAngle), 
-             Math.max(baseAngle, leftOpenAngle));
-    ctx.stroke();
-    ctx.restore();
-    
-    // 左側扉の位置（細い線）- 独立したsave/restore - キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1; // 細い線
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    const leftDoorX = Math.floor(intStart.x + Math.cos(leftOpenAngle) * radius);
-    const leftDoorY = Math.floor(intStart.y + Math.sin(leftOpenAngle) * radius);
-    ctx.moveTo(intStart.x, intStart.y);
-    ctx.lineTo(leftDoorX, leftDoorY);
-    ctx.stroke();
-    ctx.restore();
-    
-    // 右側扉の開き弧（90度）- 中央から外側に開く（左側の鏡像）- キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    const rightBaseAngle = baseAngle + Math.PI; // 180度回転した基準角度
-    const rightOpenAngle = rightBaseAngle + Math.PI/2; // 反時計回りに90度
-    // 角度の大小を正しく指定 - キャンバス版と同じ
-    ctx.arc(intEnd.x, intEnd.y, radius, 
-             Math.min(rightBaseAngle, rightOpenAngle), 
-             Math.max(rightBaseAngle, rightOpenAngle));
-    ctx.stroke();
-    ctx.restore();
-    
-    // 右側扉の位置（細い線）- 独立したsave/restore - キャンバス版と同じ
-    ctx.save();
-    ctx.lineWidth = 1; // 細い線
-    ctx.strokeStyle = '#000000';
-    ctx.beginPath();
-    const rightDoorX = Math.floor(intEnd.x + Math.cos(rightOpenAngle) * radius);
-    const rightDoorY = Math.floor(intEnd.y + Math.sin(rightOpenAngle) * radius);
-    ctx.moveTo(intEnd.x, intEnd.y);
-    ctx.lineTo(rightDoorX, rightDoorY);
-    ctx.stroke();
-    ctx.restore();
-    
-    console.log('🚪↔️ 両開き扉描画完了');
-  }
-
-  // PDF用開口部描画メソッド
-  drawSmallBoxOnContext(ctx, start, end, openingSize = 'half') {
-    console.log('📦 PDF用開口部描画開始:', { start, end, openingSize });
-    
-    // サイズに応じたマス数を決定
-    let sizeMultiplier;
-    switch (openingSize) {
-      case 'quarter':
-        sizeMultiplier = 0.25;
-        break;
-      case 'one':
-        sizeMultiplier = 1;
-        break;
-      default: // 'half'
-        sizeMultiplier = 0.5;
-    }
-    const boxSize = this.gridSize * sizeMultiplier;
-    
-    // startPointの座標をそのまま使用（左上角として保存済み）
-    const boxX = Math.floor(start.x);
-    const boxY = Math.floor(start.y);
-    
-    ctx.save();
-    
-    // 開口部の描画（透けた青色の塗りつぶし）
-    ctx.fillStyle = 'rgba(100, 150, 255, 0.3)'; // 透けた青色
-    ctx.fillRect(boxX, boxY, boxSize, boxSize);
-    
-    // 境界線（青色）
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#4080ff'; // 青色の枠線
-    ctx.strokeRect(boxX, boxY, boxSize, boxSize);
-    
-    ctx.restore();
-    
-    console.log('📦 PDF用小箱描画完了:', { boxX, boxY, boxSize });
-  }
-
-  // PDF用○シンボル描画（塗りつぶし）
-  drawCircleSymbolOnContext(ctx, start, end) {
-    const size = this.gridSize / 2; // 0.5マス
-    const centerX = start.x + size / 2;
-    const centerY = start.y + size / 2;
-    const radius = size / 2;
-    
-    ctx.save();
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // PDF用□シンボル描画（塗りつぶし）
-  drawSquareSymbolOnContext(ctx, start, end) {
-    const size = this.gridSize / 2; // 0.5マス
-    
-    ctx.save();
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(start.x, start.y, size, size);
-    ctx.restore();
-  }
-
-  // PDF用×シンボル描画（太線）
-  drawCrossSymbolOnContext(ctx, start, end) {
-    const size = this.gridSize / 2; // 0.5マス
-    
-    ctx.save();
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 10; // さらに太くする
-    ctx.lineCap = 'round'; // 端を丸くする
-    
-    // 左上から右下への線
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(start.x + size, start.y + size);
-    ctx.stroke();
-    
-    // 右上から左下への線
-    ctx.beginPath();
-    ctx.moveTo(start.x + size, start.y);
-    ctx.lineTo(start.x, start.y + size);
-    ctx.stroke();
-    
-    ctx.restore();
-  }
-
-  // PDF用階段描画メソッド
-  drawStairsOnContext(ctx, start, end, pathData) {
-    ctx.lineWidth = pathData.strokeWidth || 2;
-    ctx.strokeStyle = pathData.strokeColor || '#000000';
-    
-    const stairSteps = pathData.stairSteps || 10;
-    const stairWidth = pathData.stairWidth || this.gridSize;
-    const stairType = pathData.stairType || 'straight';
-    
-    // L字階段の場合は専用処理
-    if (stairType === 'l-shape') {
-      this.drawLShapeStairsOnContext(ctx, start, end, pathData);
-      return;
-    }
-    
-    // 直線階段の処理
-    // 階段の方向ベクトル
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    
-    if (length === 0) return;
-    
-    // 単位ベクトル
-    const unitX = dx / length;
-    const unitY = dy / length;
-    
-    // 垂直ベクトル（段鼻線用）
-    const perpX = -unitY;
-    const perpY = unitX;
-    
-    const halfWidth = stairWidth / 2;
-    
-    // メイン矢印線
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
-    
-    // 矢印ヘッド
-    const arrowLength = 15;
-    const arrowAngle = Math.PI / 6;
-    
-    ctx.beginPath();
-    ctx.moveTo(end.x, end.y);
-    ctx.lineTo(
-      end.x - arrowLength * Math.cos(Math.atan2(dy, dx) - arrowAngle),
-      end.y - arrowLength * Math.sin(Math.atan2(dy, dx) - arrowAngle)
-    );
-    ctx.moveTo(end.x, end.y);
-    ctx.lineTo(
-      end.x - arrowLength * Math.cos(Math.atan2(dy, dx) + arrowAngle),
-      end.y - arrowLength * Math.sin(Math.atan2(dy, dx) + arrowAngle)
-    );
-    ctx.stroke();
-    
-    // 段鼻線（横線）
-    const stepInterval = length / (stairSteps + 1);
-    
-    for (let i = 1; i <= stairSteps; i++) {
-      const t = i * stepInterval;
-      const stepX = start.x + unitX * t;
-      const stepY = start.y + unitY * t;
-      
-      ctx.beginPath();
-      ctx.moveTo(stepX + perpX * halfWidth, stepY + perpY * halfWidth);
-      ctx.lineTo(stepX - perpX * halfWidth, stepY - perpY * halfWidth);
-      ctx.stroke();
-    }
-  }
-
-  // PDF/画像出力用 L字階段描画
-  drawLShapeStairsOnContext(ctx, start, end, pathData) {
-    console.log('PDF用L字階段描画:', { start, end, pathData: { isHorizontalFirst: pathData.isHorizontalFirst, stairWidth: pathData.stairWidth } });
-    
-    ctx.save();
-    ctx.lineWidth = pathData.strokeWidth || 2;
-    ctx.strokeStyle = pathData.strokeColor || '#000000';
-    
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    
-    // pathDataからisHorizontalFirstを取得
-    let isHorizontalFirst;
-    if (pathData.isHorizontalFirst !== undefined) {
-      isHorizontalFirst = pathData.isHorizontalFirst;
-    } else {
-      // フォールバック
-      isHorizontalFirst = absDx >= absDy;
-    }
-    
-    const corner = isHorizontalFirst ? { x: end.x, y: start.y } : { x: start.x, y: end.y };
-    
-    // 第一セグメント
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(corner.x, corner.y);
-    ctx.stroke();
-    
-    // 第二セグメント
-    ctx.beginPath();
-    ctx.moveTo(corner.x, corner.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
-    
-    // 終点の矢印
-    const arrowLength = 20;
-    let angle;
-    if (isHorizontalFirst) {
-      // 垂直方向の矢印
-      angle = Math.atan2(end.y - corner.y, 0);
-    } else {
-      // 水平方向の矢印
-      angle = Math.atan2(0, end.x - corner.x);
-    }
-    const arrowAngle = Math.PI / 6;
-    
-    ctx.beginPath();
-    ctx.moveTo(end.x, end.y);
-    ctx.lineTo(
-      end.x - arrowLength * Math.cos(angle - arrowAngle),
-      end.y - arrowLength * Math.sin(angle - arrowAngle)
-    );
-    ctx.moveTo(end.x, end.y);
-    ctx.lineTo(
-      end.x - arrowLength * Math.cos(angle + arrowAngle),
-      end.y - arrowLength * Math.sin(angle + arrowAngle)
-    );
-    ctx.stroke();
-    
-    // 折り返し点に斜めの線を描画（踊り場を表現）- 画面表示と同じ
-    const stairWidth = pathData.stairWidth || this.gridSize;
-    const halfWidth = stairWidth / 2;
-    const diagonalLength = halfWidth * 1.4;
-    
-    const signX = dx >= 0 ? 1 : -1;
-    const signY = dy >= 0 ? 1 : -1;
-    
-    if (isHorizontalFirst) {
-      ctx.beginPath();
-      ctx.moveTo(corner.x - signX * diagonalLength * 0.7, corner.y + signY * diagonalLength * 0.7);
-      ctx.lineTo(corner.x + signX * diagonalLength * 0.7, corner.y - signY * diagonalLength * 0.7);
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(corner.x + signX * diagonalLength * 0.7, corner.y - signY * diagonalLength * 0.7);
-      ctx.lineTo(corner.x - signX * diagonalLength * 0.7, corner.y + signY * diagonalLength * 0.7);
-      ctx.stroke();
-    }
-    
-    // 段鼻線を各セグメントに描画 - 画面表示と同じロジック
-    const stairSteps = pathData.stairSteps || 10;
-    const stepsPerSegment = Math.floor(stairSteps / 2);
-    const cornerMargin = stairWidth * 0.6; // 折り返し点付近の除外範囲
-    
-    // 第一セグメントの段鼻線
-    if (isHorizontalFirst) {
-      // 水平セグメント：垂直な段鼻線
-      const length1 = Math.abs(corner.x - start.x);
-      if (length1 > 0) {
-        for (let i = 1; i <= stepsPerSegment; i++) {
-          const t = i / (stepsPerSegment + 1);
-          const x = start.x + (corner.x - start.x) * t;
-          const y = start.y;
-          
-          const distanceToCorner = Math.abs(x - corner.x);
-          if (distanceToCorner > cornerMargin) {
-            ctx.beginPath();
-            ctx.moveTo(x, y - halfWidth);
-            ctx.lineTo(x, y + halfWidth);
-            ctx.stroke();
-          }
-        }
-      }
-      
-      // 第二セグメント：水平な段鼻線
-      const length2 = Math.abs(end.y - corner.y);
-      if (length2 > 0) {
-        for (let i = 1; i <= stepsPerSegment; i++) {
-          const t = i / (stepsPerSegment + 1);
-          const x = corner.x;
-          const y = corner.y + (end.y - corner.y) * t;
-          
-          const distanceToCorner = Math.abs(y - corner.y);
-          if (distanceToCorner > cornerMargin) {
-            ctx.beginPath();
-            ctx.moveTo(x - halfWidth, y);
-            ctx.lineTo(x + halfWidth, y);
-            ctx.stroke();
-          }
-        }
-      }
-    } else {
-      // 垂直セグメント：水平な段鼻線
-      const length1 = Math.abs(corner.y - start.y);
-      if (length1 > 0) {
-        for (let i = 1; i <= stepsPerSegment; i++) {
-          const t = i / (stepsPerSegment + 1);
-          const x = start.x;
-          const y = start.y + (corner.y - start.y) * t;
-          
-          const distanceToCorner = Math.abs(y - corner.y);
-          if (distanceToCorner > cornerMargin) {
-            ctx.beginPath();
-            ctx.moveTo(x - halfWidth, y);
-            ctx.lineTo(x + halfWidth, y);
-            ctx.stroke();
-          }
-        }
-      }
-      
-      // 第二セグメント：垂直な段鼻線
-      const length2 = Math.abs(end.x - corner.x);
-      if (length2 > 0) {
-        for (let i = 1; i <= stepsPerSegment; i++) {
-          const t = i / (stepsPerSegment + 1);
-          const x = corner.x + (end.x - corner.x) * t;
-          const y = corner.y;
-          
-          const distanceToCorner = Math.abs(x - corner.x);
-          if (distanceToCorner > cornerMargin) {
-            ctx.beginPath();
-            ctx.moveTo(x, y - halfWidth);
-            ctx.lineTo(x, y + halfWidth);
-            ctx.stroke();
-          }
-        }
-      }
-    }
-    
-    ctx.restore();
-  }
-
-  // PDF用テキストボックス描画メソッド
-  drawTextBoxOnContext(ctx, x, y, pathData) {
-    console.log('PDF用テキストボックス描画:', { x, y, pathData });
-    
-    let width = pathData.width || 100;
-    let height = pathData.height || 40;
-    const text = pathData.text || '';
-    const fontSize = pathData.fontSize || 14;
-    const fontFamily = pathData.fontFamily || 'Arial, sans-serif';
-    const isVertical = pathData.isVertical || false;
-    
-    // キャンバス版と同じパディング・行間計算
-    const padding = Math.max(4, fontSize * 0.2);
-    const lineHeight = fontSize * 1.3;
-    
-    // フォント設定
-    ctx.font = `${fontSize}px ${fontFamily}`;
-    
-    // テキストサイズに合わせてボックスサイズを調整（キャンバス版と同じロジック）
-    if (text && text.trim()) {
-      if (isVertical) {
-        // 縦書き：改行を処理して列ごとに文字を配置
-        const inputLines = text.split('\n');
-        let maxLineLength = 0;
-        let totalColumns = inputLines.length;
-        
-        for (let inputLine of inputLines) {
-          maxLineLength = Math.max(maxLineLength, inputLine.length);
-        }
-        
-        const textHeight = maxLineLength * fontSize + padding * 2;
-        const textWidth = totalColumns * fontSize * 1.2 + padding * 2;
-        if (height < textHeight) height = textHeight;
-        if (width < textWidth) width = textWidth;
-      } else {
-        // 横書き：改行と自動折り返しを処理（キャンバス版と同じ）
-        const inputLines = text.split('\n');
-        let allLines = [];
-        let maxLineWidth = 0;
-        
-        for (let inputLine of inputLines) {
-          if (inputLine === '') {
-            allLines.push('');
-            continue;
-          }
-          
-          // 各行について自動折り返しを適用
-          const chars = inputLine.split('');
-          let line = '';
-          for (let char of chars) {
-            const testLine = line + char;
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > width - padding * 2 && line !== '') {
-              allLines.push(line);
-              maxLineWidth = Math.max(maxLineWidth, ctx.measureText(line).width);
-              line = char;
-            } else {
-              line = testLine;
-            }
-          }
-          if (line) {
-            allLines.push(line);
-            maxLineWidth = Math.max(maxLineWidth, ctx.measureText(line).width);
-          }
-        }
-        
-        const textHeight = allLines.length * lineHeight + padding * 2;
-        if (height < textHeight) height = textHeight;
-        if (width < maxLineWidth + padding * 2) width = maxLineWidth + padding * 2;
-      }
-    }
-    
-    // 枠線は描画しない（画像・PDF出力時は枠線不要）
-    // ctx.strokeStyle = pathData.strokeColor || '#CCCCCC';
-    // ctx.lineWidth = 1;
-    // ctx.strokeRect(x, y, width, height);
-    
-    console.log('PDF用テキストボックス最終サイズ:', { x, y, width, height, 元サイズ: { width: pathData.width, height: pathData.height } });
-    
-    // テキストを描画
-    if (text) {
-      ctx.fillStyle = pathData.textColor || pathData.strokeColor || '#000000';
-      ctx.font = `${fontSize}px ${fontFamily}`;
-      
-      if (isVertical) {
-        // 縦書きテキスト（キャンバス版と合わせる）
-        this.drawVerticalTextPDF(ctx, text, x, y, width, height, fontSize, padding);
-      } else {
-        // 横書きテキスト（キャンバス版と完全一致させる）
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        
-        // 改行と自動折り返しを処理（キャンバス版と同じロジック）
-        const inputLines = text.split('\n');
-        let allLines = [];
-        
-        for (let inputLine of inputLines) {
-          if (inputLine === '') {
-            // 空行の場合はそのまま追加
-            allLines.push('');
-            continue;
-          }
-          
-          // 各行について自動折り返しを適用
-          const chars = inputLine.split('');
-          let line = '';
-          for (let char of chars) {
-            const testLine = line + char;
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > width - padding * 2 && line !== '') {
-              allLines.push(line);
-              line = char;
-            } else {
-              line = testLine;
-            }
-          }
-          if (line) {
-            allLines.push(line);
-          }
-        }
-        
-        console.log('PDF横書きテキスト処理:', {
-          元テキスト: text,
-          入力行数: inputLines.length,
-          処理後行数: allLines.length,
-          行内容: allLines
-        });
-        
-        // 各行を描画（上下中央配置）
-        const totalTextHeight = allLines.length * lineHeight;
-        const startY = y + (height - totalTextHeight) / 2 + fontSize/2;
-        
-        allLines.forEach((lineText, index) => {
-          const textX = x + padding;
-          const textY = startY + (index * lineHeight);
-          
-          console.log(`PDF横書き行${index}: "${lineText}" at (${textX}, ${textY})`);
-          
-          // テキストボックス内に収まる場合のみ描画
-          if (textY - fontSize/2 >= y && textY + fontSize/2 <= y + height) {
-            ctx.fillText(lineText, textX, textY);
-          } else {
-            console.log(`行${index}はボックス外のため描画スキップ`);
-          }
-        });
-      }
-    }
-  }
-
-  // PDF用縦書きテキスト描画（完全中央配置）
-  drawVerticalTextPDF(ctx, text, x, y, width, height, fontSize, padding = 5) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    console.log('PDF縦書きテキスト描画開始（完全中央配置）:', {
-      text,
-      position: { x, y, width, height },
-      fontSize,
-      padding
-    });
-    
-    // 縦書き：改行を処理して列ごとに文字を配置
-    const inputLines = text.split('\n');
-    const totalColumns = inputLines.length;
-    const columnSpacing = fontSize * 1.2;
-    const totalTextWidth = totalColumns * columnSpacing;
-    
-    // 最長の列の文字数を取得
-    const maxLineLength = Math.max(...inputLines.map(line => line.length));
-    const totalTextHeight = maxLineLength * fontSize;
-    
-    // 完全中央配置のための座標を計算
-    const centerX = x + width / 2;
-    const centerY = y + height / 2;
-    const startX = centerX + (totalTextWidth - columnSpacing) / 2; // 右端から開始
-    const startY = centerY - totalTextHeight / 2;
-    
-    console.log('PDF縦書き完全中央配置計算:', {
-      totalColumns,
-      maxLineLength,
-      totalTextWidth,
-      totalTextHeight,
-      centerX,
-      centerY,
-      startX,
-      startY
-    });
-    
-    inputLines.forEach((line, columnIndex) => {
-      const chars = line.split('');
-      const columnX = startX - (columnIndex * columnSpacing); // 右から左に配置
-      
-      console.log(`PDF縦書き列${columnIndex}: "${line}" at columnX=${columnX}`);
-      
-      chars.forEach((char, charIndex) => {
-        const yy = startY + (charIndex * fontSize) + fontSize / 2;
-        
-        // 境界チェック（少し緩めに）
-        if (yy - fontSize/2 >= y && yy + fontSize/2 <= y + height && 
-            columnX - fontSize/2 >= x && columnX + fontSize/2 <= x + width) {
-          ctx.fillText(char, columnX, yy);
-          console.log(`PDF縦書き文字: "${char}" at (${columnX}, ${yy})`);
-        } else {
-          console.log(`PDF縦書き文字 "${char}" はボックス外のため描画スキップ`);
-        }
-      });
-    });
-    
-    console.log('PDF縦書きテキスト描画完了');
-  }
-
-  // PDF用開口部描画メソッド
-  // PDF用矢印頭部描画メソッド（キャンバス版と完全一致）
-  drawArrowHeadOnContext(ctx, fromX, fromY, toX, toY, arrowSize = 10) {
-    // 矢印の方向を計算
-    const dx = toX - fromX;
-    const dy = toY - fromY;
-    const angle = Math.atan2(dy, dx);
-    
-    // 矢印のサイズを線の太さに応じて調整
-    const adjustedSize = Math.max(arrowSize, ctx.lineWidth * 3);
-    
-    // 矢印の頂点を計算
-    const arrowAngle = Math.PI / 6; // 30度
-    const x1 = toX - adjustedSize * Math.cos(angle - arrowAngle);
-    const y1 = toY - adjustedSize * Math.sin(angle - arrowAngle);
-    const x2 = toX - adjustedSize * Math.cos(angle + arrowAngle);
-    const y2 = toY - adjustedSize * Math.sin(angle + arrowAngle);
-    
-    // 矢印を描画
-    ctx.save();
-    ctx.setLineDash([]); // 矢印は実線で描画
-    ctx.beginPath();
-    ctx.moveTo(toX, toY);
-    ctx.lineTo(x1, y1);
-    ctx.moveTo(toX, toY);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    ctx.restore();
-  }
+  // PDF/画像/Excel用の OnContext 系メソッド16個は canvas/pdfRenderer.js に抽出済み
+  // exportToImage / renderDrawingToBlob / drawImageHeader / drawImageLogo /
+  // shareImageViaAPI / downloadImage / showImageForSaving / triggerMobileDownload /
+  // exportToPDF / addPDFHeader / addPDFFooter / addPDFLogo は canvas/export.js に抽出済み
+  // （いずれも Object.assign で prototype に注入される）
 
   // プロジェクトデータの取得（保存用）
   getProjectData() {
@@ -9691,18 +5366,7 @@ export class DrawingCanvas {
     }
   }
 
-  // ポリラインの総長を計算するヘルパーメソッド
-  calculatePolylineLength(points) {
-    if (!points || points.length < 2) return 0;
-    
-    let totalLength = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      const dx = points[i + 1].x - points[i].x;
-      const dy = points[i + 1].y - points[i].y;
-      totalLength += Math.sqrt(dx * dx + dy * dy);
-    }
-    return totalLength;
-  }
+  // calculatePolylineLength は canvas/geometry.js に抽出済み
 
   // Undo/Redoボタンの状態を更新
   updateUndoRedoButtons() {
@@ -9772,7 +5436,1796 @@ export class DrawingCanvas {
     
     // ボタン状態も更新
     this.updateUndoRedoButtons();
-    
+
     console.log('全履歴・状態クリア完了');
   }
+
+  drawSelectionHandles(textBox) {
+    // 現在の描画設定を保存
+    const originalStrokeStyle = this.ctx.strokeStyle;
+    const originalFillStyle = this.ctx.fillStyle;
+    const originalLineWidth = this.ctx.lineWidth;
+    const originalFont = this.ctx.font;
+    const originalTextAlign = this.ctx.textAlign;
+    const originalTextBaseline = this.ctx.textBaseline;
+    
+    // テキストの実際の描画サイズを計算
+    const actualSize = this.calculateActualTextBoxSize(textBox);
+    const handles = this.getResizeHandles(textBox);
+    
+    // 選択枠を描画（薄い紫色）- 実際のテキストサイズで描画
+    this.ctx.strokeStyle = '#8B5CF6';
+    this.ctx.lineWidth = 1;
+    this.ctx.setLineDash([3, 3]);
+    this.ctx.beginPath();
+    this.ctx.rect(textBox.x, textBox.y, actualSize.width, actualSize.height);
+    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+    
+    // 移動エリアを薄く表示（視覚的ガイド）- 実際のテキストサイズに基づく
+    const margin = this.handleSize;
+    const moveAreaX = textBox.x + margin;
+    const moveAreaY = textBox.y + margin;
+    const moveAreaWidth = Math.max(0, actualSize.width - margin * 2);
+    const moveAreaHeight = Math.max(0, actualSize.height - margin * 2);
+    
+    if (moveAreaWidth > 0 && moveAreaHeight > 0) {
+      this.ctx.fillStyle = 'rgba(139, 92, 246, 0.1)';
+      this.ctx.fillRect(moveAreaX, moveAreaY, moveAreaWidth, moveAreaHeight);
+      
+      // 移動アイコンを中央に表示
+      const centerX = textBox.x + textBox.width / 2;
+      const centerY = textBox.y + textBox.height / 2;
+      
+      this.ctx.fillStyle = 'rgba(139, 92, 246, 0.5)';
+      this.ctx.font = '10px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('⊹', centerX, centerY);
+    }
+    
+    // ハンドルを描画（小さくてスタイリッシュに）
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.strokeStyle = '#8B5CF6';
+    this.ctx.lineWidth = 1.5;
+    
+    for (let handleName in handles) {
+      const handle = handles[handleName];
+      
+      // 横方向のリサイズハンドルのみ表示
+      if (handleName === 'w' || handleName === 'e') {
+        // 影の描画
+        this.ctx.save();
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        this.ctx.fillRect(
+          handle.x - this.handleSize / 2 + 1,
+          handle.y - this.handleSize / 2 + 1,
+          this.handleSize,
+          this.handleSize
+        );
+        this.ctx.restore();
+        
+        // ハンドル本体の描画
+        this.ctx.beginPath();
+        this.ctx.rect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fill();
+        this.ctx.strokeStyle = '#8B5CF6';
+        this.ctx.stroke();
+        
+        // 中央にドットを追加（操作しやすくするため）
+        this.ctx.beginPath();
+        this.ctx.arc(handle.x, handle.y, 1.5, 0, 2 * Math.PI);
+        this.ctx.fillStyle = '#8B5CF6';
+        this.ctx.fill();
+      }
+    }
+    
+    // 元の描画設定を復元
+    this.ctx.strokeStyle = originalStrokeStyle;
+    this.ctx.fillStyle = originalFillStyle;
+    this.ctx.lineWidth = originalLineWidth;
+    this.ctx.font = originalFont;
+    this.ctx.textAlign = originalTextAlign;
+    this.ctx.textBaseline = originalTextBaseline;
+  }
+
+  drawVerticalText(text, x, y, fontSize) {
+    const chars = text.split('');
+    chars.forEach((char, index) => {
+      this.ctx.fillText(char, x, y + (index * fontSize));
+    });
+  }
+
+  drawTextBoxPreview(start, end) {
+    // テキストボックスのプレビュー枠を描画
+    this.ctx.strokeStyle = '#007AFF';
+    this.ctx.lineWidth = 1;
+    this.ctx.setLineDash([5, 5]);
+    this.ctx.beginPath();
+    
+    const width = end.x - start.x;
+    const height = end.y - start.y;
+    this.ctx.rect(start.x, start.y, width, height);
+    this.ctx.stroke();
+    this.ctx.setLineDash([]); // 点線をリセット
+  }
+
+  createTextBox(start, end) {
+    // テキストボックスを作成
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    const centerX = (start.x + end.x) / 2;
+    const centerY = (start.y + end.y) / 2;
+    const isVertical = this.currentTool === 'text-vertical';
+    
+    // フォントサイズに基づいた適切なサイズを設定
+    const fontSize = this.fontSize;
+    let actualWidth, actualHeight;
+    
+    if (isVertical) {
+      // 縦書き：3文字分の幅、10文字分の高さ
+      actualWidth = Math.max(width, fontSize * 3);
+      actualHeight = Math.max(height, fontSize * 10);
+    } else {
+      // 横書き：10文字分の幅、1行分の高さ
+      actualWidth = Math.max(width, fontSize * 10);
+      actualHeight = Math.max(height, fontSize * 1.5); // 1行分の高さ
+    }
+    
+    this.createTextBoxAuto(centerX, centerY, actualWidth, actualHeight, isVertical);
+  }
+  // 新仕様：自動サイズ・自動配置のテキストボックス生成
+  // 新仕様：自動サイズ・自動配置のテキストボックス生成
+  createTextBoxAuto(centerX, centerY, width, height, isVertical) {
+    
+    // 編集中のテキストボックスがある場合は新しいボックスを作成しない
+    const hasEditingTextBox = this.allPaths.some(path => 
+      path.tool === 'textbox' && path.isSelected
+    );
+    
+    if (hasEditingTextBox || (this.textInput && this.textInput.parentNode)) {
+      console.log('編集中のテキストボックスがあるため、新しいテキストボックスの作成をスキップします');
+      return;
+    }
+    
+    // テキストボックスデータを作成
+    const textBoxData = {
+      tool: 'textbox',
+      x: centerX - width / 2,
+      y: centerY - height / 2,
+      width: width,
+      height: height,
+      text: '',
+      fontSize: this.fontSize,
+      fontFamily: '"Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", Arial, sans-serif',
+      strokeColor: this.strokeColor,
+      isVertical: isVertical,
+      isSelected: true
+    };
+    // 他のテキストボックスの選択を解除
+    this.allPaths.forEach(path => {
+      if (path.tool === 'textbox') {
+        path.isSelected = false;
+      }
+    });
+    this.setSelectedTextBox(textBoxData);
+    this.allPaths.push(textBoxData);
+    this.redoStack = [];
+    this.lastOperationType = 'path'; // テキストボックスもpathとして扱う
+    
+    // アンドゥ/リドゥボタンの状態を更新
+    this.updateUndoRedoButtons();
+    
+    console.log('テキストボックス作成: lastOperationType = path');
+    console.log('作成されたテキストボックス:', textBoxData);
+    console.log('allPaths配列:', this.allPaths);
+    this.redrawCanvas();
+    this.editTextBox(textBoxData);
+  }
+
+  editTextBox(textBoxData) {
+    console.log('=== editTextBox 開始 ===');
+    console.log('textBoxData:', textBoxData);
+    console.log('isVertical:', textBoxData.isVertical);
+    
+    // 他の編集中のテキストボックスがある場合は何もしない
+    const hasOtherEditingTextBox = this.allPaths.some(path => 
+      path.tool === 'textbox' && path.isSelected && path !== textBoxData
+    );
+    
+    if (hasOtherEditingTextBox || (this.textInput && this.textInput.parentNode)) {
+      console.log('他の編集中のテキストボックスがあるため、編集をスキップします');
+      // 新しく作成されたテキストボックスを削除
+      const index = this.allPaths.indexOf(textBoxData);
+      if (index > -1) {
+        this.allPaths.splice(index, 1);
+        console.log('重複テキストボックスを削除');
+        
+        // アンドゥ/リドゥボタンの状態を更新
+        this.updateUndoRedoButtons();
+        
+        this.redrawCanvas();
+      }
+      return;
+    }
+    
+    // 既存のテキスト入力があれば削除
+    this.removeTextInput();
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const container = this.canvas.parentElement;
+    
+    // テキスト入力要素を作成
+    if (textBoxData.isVertical) {
+      // 縦書きの場合もtextareaを使用（改行処理が簡単）
+      this.textInput = document.createElement('textarea');
+      this.textInput.value = textBoxData.text || '';
+      this.textInput.placeholder = '縦書きテキスト';
+    } else {
+      // 横書きの場合はtextareaを使用
+      this.textInput = document.createElement('textarea');
+      this.textInput.value = textBoxData.text;
+      this.textInput.placeholder = '横書きテキスト';
+    }
+    this.textInput.className = 'text-input-overlay';
+    
+    // フォントサイズは指定値をそのまま使う（未設定の場合は現在の選択値を使用）
+    const adjustedFontSize = textBoxData.fontSize || this.fontSize || 48;
+    const padding = Math.max(4, adjustedFontSize * 0.2);
+    // 高DPI対応
+    const dpr = window.devicePixelRatio || 1;
+    // ワールド座標をスクリーン座標に変換
+    const screenX = textBoxData.x * this.scale + this.translateX;
+    const screenY = textBoxData.y * this.scale + this.translateY;
+    const screenWidth = textBoxData.width * this.scale;
+    const screenHeight = textBoxData.height * this.scale;
+    
+    // スタイル設定
+    this.textInput.style.position = 'absolute';
+    
+    if (textBoxData.isVertical) {
+      // 縦書きの場合は左側に配置（3行分の幅を考慮してフォントサイズ×3.0分左にずらす）
+      this.textInput.style.left = `${screenX / dpr + rect.left - container.offsetLeft + padding - adjustedFontSize * 3.0}px`;
+      this.textInput.style.top = `${screenY / dpr + rect.top - container.offsetTop + padding}px`;
+    } else {
+      // 横書きの場合は通常の位置
+      this.textInput.style.left = `${screenX / dpr + rect.left - container.offsetLeft + padding}px`;
+      this.textInput.style.top = `${screenY / dpr + rect.top - container.offsetTop + padding}px`;
+    }
+    // iPad等タッチ端末では最小サイズを大きめに
+    if (textBoxData.isVertical) {
+      // 縦書きの場合：3行分の幅を確保
+      const minW = Math.max(adjustedFontSize * 3.5, 80);
+      const minH = Math.max(adjustedFontSize * 10, 250);
+      this.textInput.style.width = `${minW}px`;
+      this.textInput.style.height = `${minH}px`;
+    } else {
+      // 横書きの場合
+      const minW = Math.max(80, screenWidth - padding * 2, adjustedFontSize * 10);
+      const minH = Math.max(40, screenHeight / dpr - padding * 2, adjustedFontSize * 2);
+      this.textInput.style.width = `${minW}px`;
+      this.textInput.style.height = `${minH}px`;
+    }
+    this.textInput.style.fontSize = `${adjustedFontSize / dpr}px`;
+    this.textInput.style.fontFamily = textBoxData.fontFamily;
+    this.textInput.style.color = textBoxData.strokeColor;
+    this.textInput.style.background = 'rgba(255, 255, 255, 0.8)'; // より透明にして背景が見えるように
+    this.textInput.style.border = '2px solid #007AFF';
+    this.textInput.style.borderRadius = '4px';
+    
+    // 縦書きの場合は writing-mode を設定
+    if (textBoxData.isVertical) {
+      this.textInput.style.writingMode = 'vertical-rl';
+      this.textInput.style.textOrientation = 'upright';
+    } else {
+      this.textInput.style.writingMode = 'horizontal-tb';
+      this.textInput.style.textOrientation = 'mixed';
+    }
+    this.textInput.style.padding = '2px';
+    this.textInput.style.resize = 'none';
+    this.textInput.style.zIndex = '1000';
+    this.textInput.style.overflow = 'hidden';
+    this.textInput.style.boxSizing = 'border-box';
+    this.textInput.style.lineHeight = '1.3';
+    this.textInput.style.cursor = 'text';
+    
+    if (textBoxData.isVertical) {
+      console.log('縦書きテキストボックス編集 - 縦書きスタイルを適用');
+      // CSSクラスを追加
+      this.textInput.classList.add('vertical');
+      this.textInput.classList.remove('horizontal');
+      
+      // iPad/Safari対応のため複数の縦書きプロパティを設定
+      this.textInput.style.setProperty('writing-mode', 'vertical-rl', 'important');
+      this.textInput.style.setProperty('-webkit-writing-mode', 'vertical-rl', 'important');
+      this.textInput.style.setProperty('-ms-writing-mode', 'tb-rl', 'important');
+      this.textInput.style.setProperty('text-orientation', 'upright', 'important');
+      this.textInput.style.setProperty('-webkit-text-orientation', 'upright', 'important');
+      this.textInput.style.setProperty('direction', 'ltr', 'important');
+      
+      // 縦書き用のサイズ調整
+      this.textInput.style.minWidth = '40px';
+      this.textInput.style.minHeight = '80px';
+      
+      // iPad専用の追加設定
+      this.textInput.setAttribute('dir', 'ltr');
+    } else {
+      console.log('横書きテキストボックス編集 - 横書きスタイルを適用');
+      // CSSクラスを追加
+      this.textInput.classList.add('horizontal');
+      this.textInput.classList.remove('vertical');
+      
+      // 横書きの場合は縦書きスタイルをリセット
+      this.textInput.style.setProperty('writing-mode', 'horizontal-tb', 'important');
+      this.textInput.style.setProperty('-webkit-writing-mode', 'horizontal-tb', 'important');
+      this.textInput.style.setProperty('-ms-writing-mode', 'lr-tb', 'important');
+      this.textInput.style.setProperty('text-orientation', 'mixed', 'important');
+      this.textInput.style.setProperty('-webkit-text-orientation', 'mixed', 'important');
+      this.textInput.style.setProperty('direction', 'ltr', 'important');
+      
+      this.textInput.removeAttribute('dir');
+    }
+    
+    // 現在編集中のテキストボックスを保存
+    this.selectedTextBox = textBoxData;
+    this.currentTextBox = textBoxData;
+    
+    // イベントリスナー
+    this.textInput.addEventListener('blur', () => this.finishTextBoxEdit());
+    this.textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.cancelTextBoxEdit();
+      } else if (e.key === 'Enter' && e.ctrlKey) {
+        // Ctrl+Enterで入力完了（縦書き・横書き共通）
+        e.preventDefault();
+        this.finishTextBoxEdit();
+      }
+      // 通常のEnterキーは改行として処理（preventDefault不要）
+    });
+    
+    // テキスト入力時の自動サイズ調整
+    this.textInput.addEventListener('input', () => {
+      this.adjustTextBoxSize(textBoxData);
+    });
+    
+    container.appendChild(this.textInput);
+    
+    console.log('=== テキスト入力要素のスタイル確認 ===');
+    console.log('writingMode:', this.textInput.style.writingMode);
+    console.log('textOrientation:', this.textInput.style.textOrientation);
+    console.log('isVertical:', textBoxData.isVertical);
+    
+    // フォーカスを設定
+    setTimeout(() => {
+      this.textInput.focus();
+      // カーソルスタイルを確実に設定
+      this.textInput.style.cursor = 'text';
+      // textareaとdivで選択方法を分ける
+      if (this.textInput.select) {
+        this.textInput.select(); // textarea用
+      } else {
+        // contenteditable div用
+        const range = document.createRange();
+        range.selectNodeContents(this.textInput);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }, 10);
+  }
+  // テキストボックスのサイズを内容に応じて自動調整
+  // テキストボックスのサイズを内容に応じて自動調整
+  adjustTextBoxSize(textBoxData) {
+    if (!this.textInput) return;
+    
+    const text = this.textInput.value;
+    const lines = text.split('\n');
+    const adjustedFontSize = textBoxData.fontSize;
+    const dpr = window.devicePixelRatio || 1;
+    
+    if (textBoxData.isVertical) {
+      // 縦書きの場合：列数に応じて幅を調整
+      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
+      const newWidth = Math.max(adjustedFontSize * 3.5, adjustedFontSize * (maxLineLength + 1));
+      this.textInput.style.width = `${newWidth}px`;
+      
+      // テキストボックスデータも更新
+      textBoxData.width = newWidth * dpr;
+    } else {
+      // 横書きの場合：行数に応じて高さを調整
+      const lineCount = Math.max(lines.length, 1);
+      const lineHeight = adjustedFontSize * 1.3; // line-height: 1.3 に合わせる
+      const newHeight = Math.max(adjustedFontSize * 1.5, lineHeight * lineCount + 8); // padding分を考慮
+      this.textInput.style.height = `${newHeight / dpr}px`;
+      
+      // テキストボックスデータも更新
+      textBoxData.height = newHeight;
+    }
+    
+    // キャンバスを再描画してボックスサイズを更新
+    this.redrawCanvas();
+  }
+
+  finishTextBoxEdit() {
+    if (!this.textInput || !this.selectedTextBox) return;
+    
+    // textareaから値を取得
+    const text = this.textInput.value.trim();
+    this.selectedTextBox.text = text;
+    
+    this.removeTextInput();
+    this.selectedTextBox = null;
+    this.currentTextBox = null;
+    this.redrawCanvas();
+  }
+
+  cancelTextBoxEdit() {
+    if (!this.selectedTextBox) return;
+    
+    // テキストが空の場合、テキストボックスを削除
+    if (!this.selectedTextBox.text.trim()) {
+      const index = this.allPaths.indexOf(this.selectedTextBox);
+      if (index > -1) {
+        this.allPaths.splice(index, 1);
+        
+        // アンドゥ/リドゥボタンの状態を更新
+        this.updateUndoRedoButtons();
+      }
+    }
+    
+    this.removeTextInput();
+    this.selectedTextBox = null;
+    this.currentTextBox = null;
+    this.redrawCanvas();
+  }
+
+  drawTextBox(textBoxData) {
+    
+    // テキストボックスの枠線を描画
+    this.ctx.strokeStyle = '#CCCCCC';
+    this.ctx.lineWidth = 1;
+    let { x, y, width, height, text, fontSize, fontFamily, strokeColor, isVertical } = textBoxData;
+    // フォントサイズはズーム倍率を掛けず、図面上のサイズで描画
+    this.ctx.font = `${fontSize}px ${fontFamily}`;
+
+    // 折り返し判定も元の幅で行う
+    const boxWidth = width;
+    const boxHeight = height;
+    const padding = Math.max(4, fontSize * 0.2);
+    const lineHeight = fontSize * 1.3;
+
+    // テキストサイズを計算し、必要ならボックスを拡張
+    if (text && text.trim()) {
+      this.ctx.fillStyle = strokeColor;
+      if (isVertical) {
+        // 縦書き：改行を処理して列ごとに文字を配置
+        const inputLines = text.split('\n'); // 改行で分割
+        let maxLineLength = 0;
+        let totalColumns = inputLines.length;
+        
+        for (let inputLine of inputLines) {
+          maxLineLength = Math.max(maxLineLength, inputLine.length);
+        }
+        
+        const textHeight = maxLineLength * fontSize + padding * 2;
+        const textWidth = totalColumns * fontSize * 1.2 + padding * 2;
+        if (height < textHeight) height = textHeight;
+        if (width < textWidth) width = textWidth;
+      } else {
+        // 横書き：改行と自動折り返しを処理
+        const inputLines = text.split('\n'); // 改行で分割
+        let allLines = [];
+        let maxLineWidth = 0;
+        
+        for (let inputLine of inputLines) {
+          if (inputLine === '') {
+            // 空行の場合はそのまま追加
+            allLines.push('');
+            continue;
+          }
+          
+          // 各行について自動折り返しを適用
+          const chars = inputLine.split('');
+          let line = '';
+          for (let char of chars) {
+            const testLine = line + char;
+            const metrics = this.ctx.measureText(testLine);
+            if (metrics.width > boxWidth - padding * 2 && line !== '') {
+              allLines.push(line);
+              maxLineWidth = Math.max(maxLineWidth, this.ctx.measureText(line).width);
+              line = char;
+            } else {
+              line = testLine;
+            }
+          }
+          if (line) {
+            allLines.push(line);
+            maxLineWidth = Math.max(maxLineWidth, this.ctx.measureText(line).width);
+          }
+        }
+        
+        const textHeight = allLines.length * lineHeight + padding * 2;
+        if (height < textHeight) height = textHeight;
+        if (width < maxLineWidth + padding * 2) width = maxLineWidth + padding * 2;
+      }
+    }
+    // ボックスを描画
+    this.ctx.beginPath();
+    this.ctx.rect(x, y, width, height);
+    console.log('テキストボックス枠を描画:', { x, y, width, height });
+    this.ctx.stroke();
+    // テキストを描画
+    if (text && text.trim()) {
+      this.ctx.fillStyle = strokeColor;
+      if (isVertical) {
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        
+        // 縦書き：改行を処理して列ごとに文字を配置（完全中央配置）
+        const inputLines = text.split('\n');
+        const totalColumns = inputLines.length;
+        const columnSpacing = fontSize * 1.2;
+        const totalTextWidth = totalColumns * columnSpacing;
+        
+        // 最長の列の文字数を取得
+        const maxLineLength = Math.max(...inputLines.map(line => line.length));
+        const totalTextHeight = maxLineLength * fontSize;
+        
+        // 完全中央配置のための開始座標を計算
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+        const startX = centerX + (totalTextWidth - columnSpacing) / 2; // 右端から開始
+        const startY = centerY - totalTextHeight / 2;
+        
+        inputLines.forEach((line, columnIndex) => {
+          const chars = line.split('');
+          const columnX = startX - (columnIndex * columnSpacing); // 右から左に配置
+          
+          chars.forEach((char, charIndex) => {
+            const yy = startY + (charIndex * fontSize) + fontSize / 2;
+            this.ctx.fillText(char, columnX, yy);
+          });
+        });
+      } else {
+        // 横テキスト：プリセットテキストは中央揃え、通常テキストは左揃え
+        const isPreset = textBoxData.isPreset || false;
+        this.ctx.textAlign = isPreset ? 'center' : 'left';
+        this.ctx.textBaseline = 'middle'; // 中央ベースラインに変更
+        
+        // 改行と自動折り返しを処理
+        const inputLines = text.split('\n'); // 改行で分割
+        let allLines = [];
+        
+        for (let inputLine of inputLines) {
+          if (inputLine === '') {
+            // 空行の場合はそのまま追加
+            allLines.push('');
+            continue;
+          }
+          
+          // 各行について自動折り返しを適用
+          const chars = inputLine.split('');
+          let line = '';
+          for (let char of chars) {
+            const testLine = line + char;
+            const metrics = this.ctx.measureText(testLine);
+            if (metrics.width > width - padding * 2 && line !== '') {
+              allLines.push(line);
+              line = char;
+            } else {
+              line = testLine;
+            }
+          }
+          if (line) {
+            allLines.push(line);
+          }
+        }
+        
+        // 各行を描画（プリセットは中央揃え、通常は左揃え）
+        const totalTextHeight = allLines.length * lineHeight;
+        const startY = y + (height - totalTextHeight) / 2 + lineHeight / 2; // textBaseline='middle'に合わせて調整
+        
+        allLines.forEach((lineText, index) => {
+          const xx = isPreset ? x + width / 2 : x + padding; // プリセットは中央、通常は左端
+          const yy = startY + (index * lineHeight);
+          this.ctx.fillText(lineText, xx, yy);
+        });
+      }
+      this.ctx.textAlign = 'start';
+      this.ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  getTextBoxAt(coords) {
+    // allPathsを逆順で検索（最後に描いたものが優先）
+    for (let i = this.allPaths.length - 1; i >= 0; i--) {
+      const pathData = this.allPaths[i];
+      if (pathData.tool === 'textbox' && this.isPointInTextBox(coords, pathData)) {
+        return pathData;
+      }
+    }
+    return null;
+  }
+
+  isPointInTextBox(coords, textBox) {
+    // テキストの実際の描画サイズを計算
+    const actualSize = this.calculateActualTextBoxSize(textBox);
+    
+    return coords.x >= textBox.x && 
+           coords.x <= textBox.x + actualSize.width &&
+           coords.y >= textBox.y && 
+           coords.y <= textBox.y + actualSize.height;
+  }
+  // テキストボックスの実際の描画サイズを計算
+  // テキストボックスの実際の描画サイズを計算
+  calculateActualTextBoxSize(textBox) {
+    if (!textBox.text || !textBox.text.trim()) {
+      return { width: textBox.width, height: textBox.height };
+    }
+
+    // 一時的にフォントを設定
+    const originalFont = this.ctx.font;
+    this.ctx.font = `${textBox.fontSize}px ${textBox.fontFamily || 'Arial'}`;
+    
+    let { width, height, fontSize, isVertical, text } = textBox;
+    const padding = Math.max(4, fontSize * 0.2);
+    const lineHeight = fontSize * 1.3;
+
+    if (isVertical) {
+      // 縦書き：改行を処理して列ごとに文字を配置
+      const inputLines = text.split('\n');
+      let maxLineLength = 0;
+      let totalColumns = inputLines.length;
+      
+      for (let inputLine of inputLines) {
+        maxLineLength = Math.max(maxLineLength, inputLine.length);
+      }
+      
+      const textHeight = maxLineLength * fontSize + padding * 2;
+      const textWidth = totalColumns * fontSize * 1.2 + padding * 2;
+      height = Math.max(height, textHeight);
+      width = Math.max(width, textWidth);
+    } else {
+      // 横書き：改行と自動折り返しを処理
+      const inputLines = text.split('\n');
+      let allLines = [];
+      let maxLineWidth = 0;
+      
+      // まず、各行の自然な幅を測定（折り返しなし）
+      for (let inputLine of inputLines) {
+        if (inputLine === '') {
+          allLines.push('');
+          continue;
+        }
+        
+        // 行の自然な幅を測定
+        const naturalLineWidth = this.ctx.measureText(inputLine).width;
+        maxLineWidth = Math.max(maxLineWidth, naturalLineWidth);
+        
+        // 現在のテキストボックス幅での折り返しも計算
+        const chars = inputLine.split('');
+        let line = '';
+        for (let char of chars) {
+          const testLine = line + char;
+          const metrics = this.ctx.measureText(testLine);
+          if (metrics.width > width - padding * 2 && line !== '') {
+            allLines.push(line);
+            line = char;
+          } else {
+            line = testLine;
+          }
+        }
+        if (line) {
+          allLines.push(line);
+        }
+      }
+      
+      const textHeight = allLines.length * lineHeight + padding * 2;
+      height = Math.max(height, textHeight);
+      
+      // 自然な最大行幅に基づいて幅を決定（折り返しを最小限に）
+      const naturalRequiredWidth = maxLineWidth + padding * 2;
+      width = Math.max(width, naturalRequiredWidth);
+    }
+
+    // フォントを元に戻す
+    this.ctx.font = originalFont;
+    
+    return { width, height };
+  }
+  // テキストボックスの中央移動エリアをチェック
+  // テキストボックスの中央移動エリアをチェック
+  isPointInMoveArea(coords, textBox) {
+    // テキストの実際の描画サイズを計算
+    const actualSize = this.calculateActualTextBoxSize(textBox);
+    
+    // リサイズハンドルを除いた中央エリアを移動エリアとする
+    const margin = this.handleSize; // ハンドルサイズ分の余白
+    const moveAreaX = textBox.x + margin;
+    const moveAreaY = textBox.y + margin;
+    const moveAreaWidth = Math.max(0, actualSize.width - margin * 2);
+    const moveAreaHeight = Math.max(0, actualSize.height - margin * 2);
+    
+    const isInMoveArea = coords.x >= moveAreaX && 
+                        coords.x <= moveAreaX + moveAreaWidth &&
+                        coords.y >= moveAreaY && 
+                        coords.y <= moveAreaY + moveAreaHeight;
+    
+    console.log('移動エリア判定:', {
+      coords: coords,
+      moveArea: { x: moveAreaX, y: moveAreaY, width: moveAreaWidth, height: moveAreaHeight },
+      actualSize: actualSize,
+      isInMoveArea: isInMoveArea
+    });
+    
+    return isInMoveArea;
+  }
+
+  getResizeHandle(coords, textBox) {
+    const handles = this.getResizeHandles(textBox);
+    // タッチデバイスを考慮した検出範囲
+    const detectionSize = this.handleSize * 2.5;
+    
+    console.log('ハンドル検出試行:', {
+      coords: coords,
+      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height },
+      detectionSize: detectionSize
+    });
+    
+    // 横方向のハンドルのみを検出対象とする
+    const handlePriority = ['w', 'e'];
+    
+    for (let handleName of handlePriority) {
+      const handle = handles[handleName];
+      
+      // 四角形の検出範囲を使用（より直感的）
+      const halfSize = detectionSize / 2;
+      const isInRange = coords.x >= handle.x - halfSize && 
+                       coords.x <= handle.x + halfSize &&
+                       coords.y >= handle.y - halfSize && 
+                       coords.y <= handle.y + halfSize;
+      
+      console.log(`ハンドル${handleName}検出:`, {
+        handle: handle,
+        range: {
+          left: handle.x - halfSize,
+          right: handle.x + halfSize,
+          top: handle.y - halfSize,
+          bottom: handle.y + halfSize
+        },
+        isInRange: isInRange
+      });
+      
+      if (isInRange) {
+        console.log('✅ ハンドル検出成功:', handleName);
+        return handleName;
+      }
+    }
+    
+    console.log('❌ ハンドル検出失敗');
+    return null;
+  }
+
+  resizeTextBox(textBox, handle, coords) {
+    console.log('🔄 リサイズ実行:', { 
+      handle, 
+      coords, 
+      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height } 
+    });
+
+    const minWidth = Math.max(30, this.fontSize * 3);
+    const minHeight = Math.max(20, this.fontSize * 2);
+
+    let newWidth = textBox.width;
+    let newHeight = textBox.height;
+
+    const oldValues = {
+      x: textBox.x,
+      y: textBox.y,
+      width: textBox.width,
+      height: textBox.height
+    };
+
+    switch (handle) {
+      case 'w': // 左中央
+        newWidth = textBox.width + (textBox.x - coords.x);
+        if (newWidth >= minWidth) {
+          textBox.width = newWidth;
+          textBox.x = coords.x;
+        }
+        break;
+      case 'e': // 右中央
+        newWidth = coords.x - textBox.x;
+        if (newWidth >= minWidth) {
+          textBox.width = newWidth;
+        }
+        break;
+    }
+
+    console.log('✅ リサイズ完了:', {
+      handle,
+      coords,
+      textBox: { x: textBox.x, y: textBox.y, width: textBox.width, height: textBox.height }
+    });
+
+    this.redrawCanvas();
+  }
+
+  getResizeHandles(textBox) {
+    // テキストの実際の描画サイズを計算
+    const actualSize = this.calculateActualTextBoxSize(textBox);
+    
+    const x = textBox.x;
+    const y = textBox.y;
+    const w = actualSize.width;
+    const h = actualSize.height;
+    
+    return {
+      'nw': { x: x, y: y },           // 左上
+      'ne': { x: x + w, y: y },       // 右上
+      'sw': { x: x, y: y + h },       // 左下
+      'se': { x: x + w, y: y + h },   // 右下
+      'n': { x: x + w/2, y: y },      // 上中央
+      's': { x: x + w/2, y: y + h },  // 下中央
+      'w': { x: x, y: y + h/2 },      // 左中央
+      'e': { x: x + w, y: y + h/2 }   // 右中央
+    };
+  }
+
+  setSelectedTextBox(textBox) {
+    // 前の選択を解除
+    if (this.selectedTextBox) {
+      this.selectedTextBox.isSelected = false;
+      this.emit('textBoxDeselected');
+    }
+    
+    // 新しい選択を設定
+    this.selectedTextBox = textBox;
+    if (textBox) {
+      textBox.isSelected = true;
+      this.emit('textBoxSelected', textBox);
+    }
+  }
+
+  clearTextBoxSelection() {
+    // すべてのテキストボックスの選択状態をクリア
+    this.allPaths.forEach(path => {
+      if (path.tool === 'textbox') {
+        path.isSelected = false;
+      }
+    });
+    
+    if (this.selectedTextBox) {
+      this.selectedTextBox = null;
+      this.emit('textBoxDeselected');
+    }
+  }
+
+  createTextInput(coords) {
+    console.log('createTextInput開始:', coords, 'ツール:', this.currentTool);
+    // 既存のテキスト入力があれば削除
+    this.removeTextInput();
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const container = this.canvas.parentElement;
+    console.log('container:', container, 'rect:', rect);
+    
+    // スタイル設定
+    const isVertical = this.currentTool === 'text-vertical';
+    
+    // テキスト入力要素を作成
+    if (isVertical) {
+      // 縦書きの場合はdivを使用（iPad対応）
+      this.textInput = document.createElement('div');
+      this.textInput.contentEditable = true;
+      this.textInput.setAttribute('role', 'textbox');
+      this.textInput.setAttribute('aria-multiline', 'true');
+    } else {
+      // 横書きの場合はtextareaを使用
+      this.textInput = document.createElement('textarea');
+    }
+    this.textInput.className = 'text-input-overlay';
+    this.textInput.style.position = 'absolute';
+    this.textInput.style.cursor = 'text';
+    
+    // 縦書きの場合は座標を調整
+    if (isVertical) {
+      // 縦書きテキストは入力エリアを3行分の幅を考慮して左にずらして配置
+      this.textInput.style.left = `${coords.x + rect.left - container.offsetLeft - this.fontSize * 3.0}px`;
+      this.textInput.style.top = `${coords.y + rect.top - container.offsetTop}px`;
+    } else {
+      this.textInput.style.left = `${coords.x + rect.left - container.offsetLeft}px`;
+      this.textInput.style.top = `${coords.y + rect.top - container.offsetTop}px`;
+    }
+    
+    this.textInput.style.fontSize = `${this.fontSize}px`;
+    this.textInput.style.fontFamily = 'Arial, sans-serif';
+    this.textInput.style.color = this.strokeColor;
+    this.textInput.style.background = 'rgba(255, 255, 255, 0.8)'; // より透明にして背景が見えるように
+    this.textInput.style.border = '2px solid #007AFF';
+    this.textInput.style.borderRadius = '4px';
+    this.textInput.style.padding = '4px';
+    this.textInput.style.resize = 'none';
+    this.textInput.style.zIndex = '1000';
+    
+    // 縦書きと横書きでサイズを調整
+    if (isVertical) {
+      // 縦書きの場合：3行分の幅を確保
+      this.textInput.style.minWidth = `${this.fontSize * 3.5}px`;
+      this.textInput.style.minHeight = `${this.fontSize * 10}px`;
+      this.textInput.style.width = `${this.fontSize * 3.5}px`;
+      this.textInput.style.height = `${this.fontSize * 10}px`;
+    } else {
+      this.textInput.style.minWidth = '50px';
+      this.textInput.style.minHeight = '20px';
+    }
+    
+    this.textInput.style.display = 'block';
+    this.textInput.style.visibility = 'visible';
+    this.textInput.style.opacity = '1';
+    
+    if (isVertical) {
+      // CSSクラスを追加
+      this.textInput.classList.add('vertical');
+      this.textInput.classList.remove('horizontal');
+      
+      // iPad/Safari対応のため複数の縦書きプロパティを設定
+      this.textInput.style.setProperty('writing-mode', 'vertical-rl', 'important');
+      this.textInput.style.setProperty('-webkit-writing-mode', 'vertical-rl', 'important');
+      this.textInput.style.setProperty('-ms-writing-mode', 'tb-rl', 'important');
+      this.textInput.style.setProperty('text-orientation', 'upright', 'important');
+      this.textInput.style.setProperty('-webkit-text-orientation', 'upright', 'important');
+      this.textInput.style.setProperty('direction', 'ltr', 'important');
+      
+      this.textInput.style.minWidth = '20px';
+      this.textInput.style.minHeight = '50px';
+      
+      // iPad専用の追加設定
+      this.textInput.setAttribute('dir', 'ltr');
+    } else {
+      // CSSクラスを追加
+      this.textInput.classList.add('horizontal');
+      this.textInput.classList.remove('vertical');
+      
+      // 横書きの場合は縦書きスタイルをリセット
+      this.textInput.style.setProperty('writing-mode', 'horizontal-tb', 'important');
+      this.textInput.style.setProperty('-webkit-writing-mode', 'horizontal-tb', 'important');
+      this.textInput.style.setProperty('-ms-writing-mode', 'lr-tb', 'important');
+      this.textInput.style.setProperty('text-orientation', 'mixed', 'important');
+      this.textInput.style.setProperty('-webkit-text-orientation', 'mixed', 'important');
+      this.textInput.style.setProperty('direction', 'ltr', 'important');
+      
+      this.textInput.removeAttribute('dir');
+    }
+    
+    this.textInput.placeholder = isVertical ? '縦書きテキスト' : '横書きテキスト';
+    
+    // イベントリスナー
+    this.textInput.addEventListener('blur', () => this.finishTextInput());
+    
+    this.textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.removeTextInput();
+      } else if (e.key === 'Enter') {
+        if (isVertical && this.textInput.contentEditable) {
+          // 縦書きcontenteditable divの場合
+          if (e.ctrlKey) {
+            // Ctrl+Enterで入力完了
+            e.preventDefault();
+            this.finishTextInput();
+          } else {
+            // 通常のEnterで改行を挿入
+            e.preventDefault();
+            const selection = window.getSelection();
+            const range = selection.getRangeAt(0);
+            const br = document.createElement('br');
+            range.deleteContents();
+            range.insertNode(br);
+            range.setStartAfter(br);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        } else if (isVertical) {
+          // 縦書きtextareaの場合は通常のEnterで改行を許可
+          if (e.ctrlKey) {
+            // Ctrl+Enterで入力完了
+            e.preventDefault();
+            this.finishTextInput();
+          }
+        } else {
+          // 横書きの場合はCtrl+Enterで入力完了
+          if (e.ctrlKey) {
+            e.preventDefault();
+            this.finishTextInput();
+          }
+        }
+      }
+    });
+    
+    container.appendChild(this.textInput);
+    console.log('テキスト入力要素をDOMに追加しました:', this.textInput);
+    console.log('要素のスタイル:', {
+      position: this.textInput.style.position,
+      left: this.textInput.style.left,
+      top: this.textInput.style.top,
+      zIndex: this.textInput.style.zIndex,
+      display: this.textInput.style.display,
+      visibility: this.textInput.style.visibility
+    });
+    
+    // レンダリング後にフォーカスを設定
+    setTimeout(() => {
+      this.textInput.focus();
+      // カーソルスタイルを確実に設定
+      this.textInput.style.cursor = 'text';
+      console.log('フォーカスを設定しました。縦書き:', isVertical);
+    }, 10);
+  }
+
+  finishTextInput() {
+    console.log('=== finishTextInput が呼ばれました ===');
+    console.log('テキスト入力状態:', {
+      textInput: this.textInput,
+      parentNode: this.textInput ? this.textInput.parentNode : null,
+      allPathsCount: this.allPaths.length
+    });
+    
+    if (!this.textInput || !this.textInput.parentNode) {
+      console.log('テキスト入力が存在しないため、処理をスキップします');
+      return;
+    }
+    
+    // テキストを取得（divとtextareaの両方に対応）
+    let text;
+    if (this.textInput.value !== undefined) {
+      // textareaの場合
+      text = this.textInput.value.trim();
+    } else {
+      // contenteditable divの場合
+      // まずinnerHTMLを取得して<br>タグを改行文字に変換
+      let htmlContent = this.textInput.innerHTML;
+      // <br>タグを改行文字に変換
+      htmlContent = htmlContent.replace(/<br\s*\/?>/gi, '\n');
+      // HTMLタグを除去
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = htmlContent;
+      text = (tempDiv.textContent || tempDiv.innerText || '').trim();
+    }
+    
+    // 現在編集中のテキストボックスを探す
+    const editingTextBox = this.allPaths.find(path => 
+      path.tool === 'textbox' && path.isSelected
+    );
+    
+    if (editingTextBox) {
+      // 既存のテキストボックスを更新
+      editingTextBox.text = text;
+      console.log('=== テキストボックス更新 ===');
+      console.log('テキスト:', text);
+      console.log('テキストボックス:', editingTextBox);
+      
+      // 空のテキストの場合は削除
+      if (!text) {
+        const index = this.allPaths.indexOf(editingTextBox);
+        if (index > -1) {
+          this.allPaths.splice(index, 1);
+          console.log('空のテキストボックスを削除');
+          
+          // アンドゥ/リドゥボタンの状態を更新
+          this.updateUndoRedoButtons();
+        }
+        this.selectedTextBox = null;
+      } else {
+        // テキストボックスのサイズを内容に合わせて調整
+        this.adjustTextBoxSize(editingTextBox);
+        // 編集完了後は選択解除
+        editingTextBox.isSelected = false;
+        this.selectedTextBox = null;
+      }
+      
+      this.redrawCanvas();
+    }
+    
+    this.removeTextInput();
+  }
+
+  adjustTextBoxSize(textBoxData) {
+    // テキストの実際のサイズを測定
+    this.ctx.font = `${textBoxData.fontSize}px ${textBoxData.fontFamily}`;
+    
+    if (textBoxData.isVertical) {
+      // 縦書きの場合 - 改行を正しく処理
+      const inputLines = textBoxData.text.split('\n');
+      let maxLineLength = 0;
+      let totalColumns = inputLines.length;
+      
+      for (let inputLine of inputLines) {
+        maxLineLength = Math.max(maxLineLength, inputLine.length);
+      }
+      
+      textBoxData.width = Math.max(totalColumns * textBoxData.fontSize * 1.2, 30);
+      textBoxData.height = Math.max(maxLineLength * textBoxData.fontSize * 1.2, 50);
+    } else {
+      // 横書きの場合 - 改行を正しく処理
+      const inputLines = textBoxData.text.split('\n');
+      let maxWidth = 0;
+      let totalLines = inputLines.length || 1; // 最低1行
+      
+      for (let inputLine of inputLines) {
+        // 各行の幅を測定
+        const lineWidth = this.ctx.measureText(inputLine).width;
+        maxWidth = Math.max(maxWidth, lineWidth);
+      }
+      
+      textBoxData.width = Math.max(maxWidth + 20, 100);
+      textBoxData.height = Math.max(totalLines * textBoxData.fontSize * 1.4, textBoxData.fontSize * 1.5);
+    }
+  }
+
+  removeTextInput() {
+    if (this.textInput) {
+      try {
+        // 要素が親ノードに存在するかチェック
+        if (this.textInput.parentNode) {
+          this.textInput.parentNode.removeChild(this.textInput);
+        }
+      } catch (error) {
+        console.log('Text input already removed');
+      }
+      this.textInput = null;
+    }
+  }
+  // テキストボックス編集ダイアログを表示
+  // テキストボックス編集ダイアログを表示
+  showTextBoxEditDialog(textBoxData) {
+    console.log('テキストボックス編集ダイアログを表示:', textBoxData);
+    
+    // 既存のダイアログがあれば削除
+    const existingDialog = document.querySelector('.textbox-edit-dialog');
+    if (existingDialog) {
+      existingDialog.remove();
+    }
+    
+    // ダイアログを作成
+    const dialog = document.createElement('div');
+    dialog.className = 'textbox-edit-dialog';
+    dialog.innerHTML = `
+      <div class="textbox-edit-backdrop">
+        <div class="textbox-edit-content">
+          <div class="textbox-edit-header">
+            <h3>テキストボックス編集</h3>
+          </div>
+          <div class="textbox-edit-body">
+            <div class="edit-field">
+              <label>テキスト内容</label>
+              <textarea id="edit-text-content" rows="4">${textBoxData.text || ''}</textarea>
+            </div>
+            <div class="edit-field">
+              <label>色</label>
+              <div class="color-preset-buttons">
+                <button class="preset-color-btn" data-color="#000000" style="background-color: #000000;" title="黒"></button>
+                <button class="preset-color-btn" data-color="#FF0000" style="background-color: #FF0000;" title="赤"></button>
+                <button class="preset-color-btn" data-color="#0080FF" style="background-color: #0080FF;" title="青"></button>
+                <button class="preset-color-btn" data-color="#00FF00" style="background-color: #00FF00;" title="緑"></button>
+                <button class="preset-color-btn" data-color="#FFFF00" style="background-color: #FFFF00;" title="黄"></button>
+                <button class="preset-color-btn" data-color="#FF00FF" style="background-color: #FF00FF;" title="マゼンタ"></button>
+                <button class="preset-color-btn" data-color="#00FFFF" style="background-color: #00FFFF;" title="シアン"></button>
+                <button class="preset-color-btn" data-color="#FFA500" style="background-color: #FFA500;" title="オレンジ"></button>
+                <button class="preset-color-btn" data-color="#808080" style="background-color: #808080;" title="グレー"></button>
+                <button class="preset-color-btn" data-color="#FFFFFF" style="background-color: #FFFFFF; border: 2px solid #999;" title="白"></button>
+              </div>
+              <div class="color-picker-wrapper">
+                <input type="color" id="edit-text-color" value="${textBoxData.strokeColor || '#000000'}">
+                <span class="color-preview" style="background-color: ${textBoxData.strokeColor || '#000000'}"></span>
+                <span class="color-label">カスタム色</span>
+              </div>
+            </div>
+            <div class="edit-field">
+              <label>フォントサイズ</label>
+              <select id="edit-font-size">
+                <option value="16" ${textBoxData.fontSize === 16 ? 'selected' : ''}>16px</option>
+                <option value="20" ${textBoxData.fontSize === 20 ? 'selected' : ''}>20px</option>
+                <option value="24" ${textBoxData.fontSize === 24 ? 'selected' : ''}>24px</option>
+                <option value="28" ${textBoxData.fontSize === 28 ? 'selected' : ''}>28px</option>
+                <option value="32" ${textBoxData.fontSize === 32 ? 'selected' : ''}>32px</option>
+                <option value="36" ${textBoxData.fontSize === 36 ? 'selected' : ''}>36px</option>
+                <option value="40" ${textBoxData.fontSize === 40 ? 'selected' : ''}>40px</option>
+                <option value="48" ${textBoxData.fontSize === 48 ? 'selected' : ''}>48px</option>
+                <option value="56" ${textBoxData.fontSize === 56 ? 'selected' : ''}>56px</option>
+                <option value="64" ${textBoxData.fontSize === 64 ? 'selected' : ''}>64px</option>
+                <option value="72" ${textBoxData.fontSize === 72 ? 'selected' : ''}>72px</option>
+                <option value="80" ${textBoxData.fontSize === 80 ? 'selected' : ''}>80px</option>
+                <option value="96" ${textBoxData.fontSize === 96 ? 'selected' : ''}>96px</option>
+              </select>
+            </div>
+            <div class="edit-field">
+              <label>向き</label>
+              <div class="orientation-buttons">
+                <button id="edit-orientation-horizontal" class="orientation-btn ${!textBoxData.isVertical ? 'active' : ''}">横書き</button>
+                <button id="edit-orientation-vertical" class="orientation-btn ${textBoxData.isVertical ? 'active' : ''}">縦書き</button>
+              </div>
+            </div>
+          </div>
+          <div class="textbox-edit-actions">
+            <button class="edit-btn-cancel">キャンセル</button>
+            <button class="edit-btn-ok">OK</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // スタイルを追加
+    if (!document.querySelector('#textbox-edit-dialog-style')) {
+      const style = document.createElement('style');
+      style.id = 'textbox-edit-dialog-style';
+      style.textContent = `
+        .textbox-edit-dialog {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 10000;
+        }
+        .textbox-edit-backdrop {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .textbox-edit-content {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          min-width: 400px;
+          max-width: 90%;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+        body.dark-mode .textbox-edit-content {
+          background: #2d2d2d;
+          color: #e0e0e0;
+        }
+        .textbox-edit-header h3 {
+          margin: 0 0 20px 0;
+          font-size: 20px;
+          font-weight: 600;
+        }
+        .textbox-edit-body {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .edit-field {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .edit-field label {
+          font-weight: 500;
+          font-size: 14px;
+        }
+        .edit-field textarea {
+          width: 100%;
+          padding: 8px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        body.dark-mode .edit-field textarea {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        .color-preset-buttons {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 12px;
+          padding: 8px;
+          background: #f5f5f5;
+          border-radius: 8px;
+        }
+        body.dark-mode .color-preset-buttons {
+          background: #3d3d3d;
+        }
+        .preset-color-btn {
+          width: 40px;
+          height: 40px;
+          border: 2px solid #ddd;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          position: relative;
+        }
+        body.dark-mode .preset-color-btn {
+          border-color: #555;
+        }
+        .preset-color-btn:hover {
+          transform: scale(1.1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        .preset-color-btn.selected {
+          border-color: #007AFF;
+          box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
+        }
+        .color-picker-wrapper {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          padding-top: 8px;
+          border-top: 1px solid #e0e0e0;
+        }
+        body.dark-mode .color-picker-wrapper {
+          border-top-color: #555;
+        }
+        .color-picker-wrapper input[type="color"] {
+          width: 50px;
+          height: 36px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+        }
+        .color-preview {
+          width: 36px;
+          height: 36px;
+          border-radius: 6px;
+          border: 1px solid #ccc;
+        }
+        .color-label {
+          font-size: 12px;
+          color: #666;
+        }
+        body.dark-mode .color-label {
+          color: #aaa;
+        }
+        .edit-field select {
+          padding: 8px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          font-size: 14px;
+          background: white;
+          cursor: pointer;
+        }
+        body.dark-mode .edit-field select {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        .orientation-buttons {
+          display: flex;
+          gap: 8px;
+        }
+        .orientation-btn {
+          flex: 1;
+          padding: 8px 16px;
+          border: 1px solid #ccc;
+          border-radius: 6px;
+          background: white;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+        .orientation-btn.active {
+          background: #007AFF;
+          color: white;
+          border-color: #007AFF;
+        }
+        body.dark-mode .orientation-btn {
+          background: #3d3d3d;
+          color: #e0e0e0;
+          border-color: #555;
+        }
+        body.dark-mode .orientation-btn.active {
+          background: #0066CC;
+          border-color: #0066CC;
+        }
+        .textbox-edit-actions {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          margin-top: 20px;
+        }
+        .textbox-edit-actions button {
+          padding: 10px 24px;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .edit-btn-cancel {
+          background: #f0f0f0;
+          color: #333;
+        }
+        .edit-btn-cancel:hover {
+          background: #e0e0e0;
+        }
+        body.dark-mode .edit-btn-cancel {
+          background: #3d3d3d;
+          color: #e0e0e0;
+        }
+        body.dark-mode .edit-btn-cancel:hover {
+          background: #4d4d4d;
+        }
+        .edit-btn-ok {
+          background: #007AFF;
+          color: white;
+        }
+        .edit-btn-ok:hover {
+          background: #0066CC;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(dialog);
+    
+    // イベントリスナーを追加
+    const textInput = dialog.querySelector('#edit-text-content');
+    const colorInput = dialog.querySelector('#edit-text-color');
+    const colorPreview = dialog.querySelector('.color-preview');
+    const fontSizeSelect = dialog.querySelector('#edit-font-size');
+    const horizontalBtn = dialog.querySelector('#edit-orientation-horizontal');
+    const verticalBtn = dialog.querySelector('#edit-orientation-vertical');
+    const cancelBtn = dialog.querySelector('.edit-btn-cancel');
+    const okBtn = dialog.querySelector('.edit-btn-ok');
+    const backdrop = dialog.querySelector('.textbox-edit-backdrop');
+    const presetColorButtons = dialog.querySelectorAll('.preset-color-btn');
+    
+    let isVertical = textBoxData.isVertical;
+    let selectedColor = textBoxData.strokeColor || '#000000';
+    
+    // 初期選択状態を設定
+    presetColorButtons.forEach(btn => {
+      if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
+        btn.classList.add('selected');
+      }
+    });
+    
+    // プリセットカラーボタンのイベント
+    presetColorButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedColor = btn.dataset.color;
+        colorInput.value = selectedColor;
+        colorPreview.style.backgroundColor = selectedColor;
+        
+        // 選択状態を更新
+        presetColorButtons.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
+    
+    // カラーピッカー変更時
+    colorInput.addEventListener('input', () => {
+      selectedColor = colorInput.value;
+      colorPreview.style.backgroundColor = selectedColor;
+      
+      // プリセットボタンの選択状態をクリア
+      presetColorButtons.forEach(btn => {
+        if (btn.dataset.color.toUpperCase() === selectedColor.toUpperCase()) {
+          btn.classList.add('selected');
+        } else {
+          btn.classList.remove('selected');
+        }
+      });
+    });
+    
+    // 向きボタンのイベント
+    horizontalBtn.addEventListener('click', () => {
+      isVertical = false;
+      horizontalBtn.classList.add('active');
+      verticalBtn.classList.remove('active');
+    });
+    
+    verticalBtn.addEventListener('click', () => {
+      isVertical = true;
+      verticalBtn.classList.add('active');
+      horizontalBtn.classList.remove('active');
+    });
+    
+    // ESCキーで閉じる
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        cleanup();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    
+    const cleanup = () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      dialog.remove();
+    };
+    
+    cancelBtn.addEventListener('click', () => {
+      cleanup();
+    });
+    
+    okBtn.addEventListener('click', () => {
+      console.log('OK button clicked');
+      // 変更を適用
+      textBoxData.text = textInput.value.trim();
+      textBoxData.strokeColor = selectedColor;
+      textBoxData.fontSize = parseInt(fontSizeSelect.value);
+      textBoxData.isVertical = isVertical;
+      
+      console.log('Updated textBoxData:', textBoxData);
+      
+      // サイズを再計算
+      this.recalculateTextBoxSize(textBoxData);
+      
+      // 履歴をクリア（編集は新しい操作として扱う）
+      this.redoStack = [];
+      this.lastOperationType = 'path';
+      
+      // アンドゥ/リドゥボタンの状態を更新
+      this.updateUndoRedoButtons();
+      
+      // 再描画
+      this.redrawCanvas();
+      
+      console.log('Calling cleanup');
+      cleanup();
+    });
+    
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) {
+        cleanup();
+      }
+    });
+    
+    // テキストエリアにフォーカス
+    setTimeout(() => {
+      textInput.focus();
+      textInput.select();
+    }, 100);
+  }
+  // テキストボックスのサイズを再計算
+  // テキストボックスのサイズを再計算
+  recalculateTextBoxSize(textBoxData) {
+    const text = textBoxData.text || '';
+    const fontSize = textBoxData.fontSize;
+    const padding = 20;
+    
+    this.ctx.font = `${fontSize}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", Arial, sans-serif`;
+    
+    if (textBoxData.isVertical) {
+      // 縦書き：行数×フォントサイズで幅、最長行×フォントサイズで高さ
+      const lines = text.split('\n');
+      const maxLineLength = Math.max(...lines.map(line => line.length), 1);
+      textBoxData.width = lines.length * fontSize * 1.2 + padding * 2;
+      textBoxData.height = maxLineLength * fontSize + padding * 2;
+    } else {
+      // 横書き：最長行の幅、行数×行高で高さ
+      const lines = text.split('\n');
+      let maxWidth = 0;
+      for (const line of lines) {
+        const metrics = this.ctx.measureText(line);
+        maxWidth = Math.max(maxWidth, metrics.width);
+      }
+      const lineHeight = fontSize * 1.3;
+      textBoxData.width = maxWidth + padding * 2;
+      textBoxData.height = lines.length * lineHeight + padding * 2;
+    }
+  }
+  // 編集中のテキストボックスを完全に削除（テキスト入力フィールド + 空のテキストボックスデータのみ）
+
+  drawFillPath(pathData) {
+    // 塗りつぶしの描画
+    const pattern = pathData.fillPattern || 'solid';
+    if (pathData.positions) {
+      // 新形式：複数位置
+      pathData.positions.forEach(pos => {
+        const posPattern = pos.pattern || pattern;
+        if (posPattern === 'diagonal') {
+          // 現在の変換行列を取得
+          const transform = this.ctx.getTransform();
+          
+          // ワールド座標をスクリーン座標に変換
+          const screenX = pos.x * transform.a + transform.e;
+          const screenY = pos.y * transform.d + transform.f;
+          const screenSize = pos.size * transform.a;
+          
+          // 一時的に変換をリセットして物理座標で描画
+          this.ctx.save();
+          this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+          
+          this.ctx.strokeStyle = pathData.strokeColor;
+          this.ctx.lineWidth = 2;
+          const spacing = 16;
+          
+          // 背景に薄い色を塗る
+          this.ctx.fillStyle = pathData.strokeColor + '20'; // 透明度12.5%
+          this.ctx.fillRect(screenX, screenY, screenSize, screenSize);
+          
+          // クリッピング領域を設定（正方形内だけに描画）
+          this.ctx.beginPath();
+          this.ctx.rect(screenX, screenY, screenSize, screenSize);
+          this.ctx.clip();
+          
+          // 斜線を描画
+          this.ctx.beginPath();
+          for (let offset = -screenSize; offset < screenSize * 2; offset += spacing) {
+            this.ctx.moveTo(screenX + offset, screenY);
+            this.ctx.lineTo(screenX + offset + screenSize, screenY + screenSize);
+          }
+          this.ctx.stroke();
+          
+          // 枠線を描画（クリッピング適用後）
+          this.ctx.strokeStyle = pathData.strokeColor;
+          this.ctx.lineWidth = 2;
+          this.ctx.strokeRect(screenX, screenY, screenSize, screenSize);
+          
+          // 変換を元に戻す（1回だけrestore）
+          this.ctx.restore();
+        } else {
+          this.ctx.fillStyle = pathData.strokeColor;
+          this.ctx.fillRect(pos.x, pos.y, pos.size, pos.size);
+        }
+      });
+    } else if (pathData.startPoint) {
+      // 旧形式：単一位置（後方互換性）
+      this.ctx.fillStyle = pathData.strokeColor;
+      this.ctx.fillRect(pathData.startPoint.x, pathData.startPoint.y, pathData.size, pathData.size);
+    }
+  }
+
+  updateCursorForPosition(event) {
+    const coords = this.getCoordinates(event);
+    
+    // まず、選択中のテキストボックスのハンドルをチェック（最優先）
+    if (this.selectedTextBox) {
+      const handle = this.getResizeHandle(coords, this.selectedTextBox);
+      if (handle) {
+        // ハンドルの種類に応じてカーソルを変更
+        switch (handle) {
+          case 'nw':
+          case 'se':
+            this.canvas.style.cursor = 'nw-resize';
+            break;
+          case 'ne':
+          case 'sw':
+            this.canvas.style.cursor = 'ne-resize';
+            break;
+          case 'n':
+          case 's':
+            this.canvas.style.cursor = 'ns-resize';
+            break;
+          case 'w':
+          case 'e':
+            this.canvas.style.cursor = 'ew-resize';
+            break;
+          default:
+            this.canvas.style.cursor = 'default';
+        }
+        return;
+      }
+      
+      // テキストボックス内かチェック
+      if (this.isPointInTextBox(coords, this.selectedTextBox)) {
+        // 移動エリアかリサイズエリアかで分ける
+        if (this.isPointInMoveArea(coords, this.selectedTextBox)) {
+          this.canvas.style.cursor = 'move';
+        } else {
+          this.canvas.style.cursor = 'grab';
+        }
+        return;
+      }
+    }
+    
+    // 他のテキストボックスのハンドルをチェック
+    for (let i = this.allPaths.length - 1; i >= 0; i--) {
+      const pathData = this.allPaths[i];
+      if (pathData.tool === 'textbox') {
+        const handle = this.getResizeHandle(coords, pathData);
+        if (handle) {
+          switch (handle) {
+            case 'nw':
+            case 'se':
+              this.canvas.style.cursor = 'nw-resize';
+              break;
+            case 'ne':
+            case 'sw':
+              this.canvas.style.cursor = 'ne-resize';
+              break;
+            case 'n':
+            case 's':
+              this.canvas.style.cursor = 'ns-resize';
+              break;
+            case 'w':
+            case 'e':
+              this.canvas.style.cursor = 'ew-resize';
+              break;
+            default:
+              this.canvas.style.cursor = 'default';
+          }
+          return;
+        }
+        
+        // テキストボックス内でもカーソルを変更
+        if (this.isPointInTextBox(coords, pathData)) {
+          if (this.isPointInMoveArea(coords, pathData)) {
+            this.canvas.style.cursor = 'move';
+          } else {
+            this.canvas.style.cursor = 'pointer';
+          }
+          return;
+        }
+      }
+    }
+    
+    // デフォルトカーソル
+    this.updateCursor();
+  }
+
+  removeCurrentTextBox() {
+    console.log('=== removeCurrentTextBox 開始 ===');
+    console.log('削除前の状態:', {
+      textInput: this.textInput,
+      allPathsCount: this.allPaths.length,
+      selectedTextBox: this.selectedTextBox
+    });
+    
+    // テキスト入力フィールドを削除
+    this.removeTextInput();
+    
+    // 編集中（選択状態）で空のテキストボックスのみを allPaths から削除
+    const editingIndex = this.allPaths.findIndex(path => 
+      path.tool === 'textbox' && path.isSelected && (!path.text || path.text.trim() === '')
+    );
+    
+    console.log('削除対象の空テキストボックスのインデックス:', editingIndex);
+    
+    if (editingIndex !== -1) {
+      const removedPath = this.allPaths.splice(editingIndex, 1)[0];
+      console.log('削除された空のテキストボックス:', removedPath);
+      console.log('空のテキストボックスを削除しました');
+      
+      // アンドゥ/リドゥボタンの状態を更新
+      this.updateUndoRedoButtons();
+    } else {
+      console.log('削除対象の空テキストボックスが見つかりませんでした');
+      
+      // テキストが入力済みの選択状態テキストボックスがある場合は削除せず選択解除のみ
+      const selectedTextBoxWithText = this.allPaths.find(path => 
+        path.tool === 'textbox' && path.isSelected && path.text && path.text.trim() !== ''
+      );
+      
+      if (selectedTextBoxWithText) {
+        console.log('テキストが入力済みのテキストボックスは削除せず選択解除のみ行います:', selectedTextBoxWithText);
+        selectedTextBoxWithText.isSelected = false;
+      }
+    }
+    
+    // 選択状態をクリア
+    this.selectedTextBox = null;
+    
+    console.log('削除後の状態:', {
+      allPathsCount: this.allPaths.length,
+      selectedTextBox: this.selectedTextBox
+    });
+    
+    // 画面を再描画
+    this.redrawCanvas();
+    console.log('=== removeCurrentTextBox 完了 ===');
+  }
 }
+
+// PDF/画像/Excel 出力用のメソッド群を DrawingCanvas のプロトタイプに注入
+Object.assign(DrawingCanvas.prototype, pdfRendererMethods);
+Object.assign(DrawingCanvas.prototype, exportMethods);
+Object.assign(DrawingCanvas.prototype, backgroundImageMethods);
