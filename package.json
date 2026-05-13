@@ -16,6 +16,8 @@
     "vite": "^7.0.4"
   },
   "dependencies": {
-    "jspdf": "^3.0.1"
+    "exceljs": "^4.4.0",
+    "jspdf": "^3.0.1",
+    "pdfjs-dist": "^5.7.284"
   }
 }

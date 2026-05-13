@@ -54,23 +54,28 @@ export default class StartScreen {
   }
 
   continueProject() {
-    console.log('プロジェクト継続');
+    console.log('プロジェクト継続: ファイル選択ダイアログを開きます');
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,.png,.jpg,.jpeg';
+    // accept は MIME と拡張子の両方を指定（OS/ブラウザによる差異対策）
+    input.accept = 'application/json,application/pdf,image/png,image/jpeg,.json,.pdf,.png,.jpg,.jpeg';
     input.onchange = (e) => {
       const file = e.target.files[0];
       if (file) {
+        console.log(`ファイル選択: name=${file.name}, type=${file.type}, size=${file.size}`);
         this.loadProjectFile(file);
+      } else {
+        console.log('ファイルが選択されませんでした');
       }
     };
     input.click();
   }
 
   loadProjectFile(file) {
-    const reader = new FileReader();
-    
-    if (file.type === 'application/json' || file.name.endsWith('.json')) {
+    const fileName = file.name.toLowerCase();
+
+    if (file.type === 'application/json' || fileName.endsWith('.json')) {
+      const reader = new FileReader();
       reader.onload = (e) => {
         try {
           const projectData = JSON.parse(e.target.result);
@@ -81,11 +86,39 @@ export default class StartScreen {
         }
       };
       reader.readAsText(file);
+    } else if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) {
+      this.loadPdfAsBackground(file);
     } else {
+      const reader = new FileReader();
       reader.onload = (e) => {
         this.loadImageAsBackground(e.target.result);
       };
       reader.readAsDataURL(file);
+    }
+  }
+
+  async loadPdfAsBackground(file) {
+    try {
+      const pdfjsLib = await import('pdfjs-dist');
+      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const page = await pdf.getPage(1);
+
+      // 解像度を上げて鮮明な下絵にする
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+      const dataUrl = canvas.toDataURL('image/png');
+      this.loadImageAsBackground(dataUrl);
+    } catch (error) {
+      console.error('PDFの読み込みに失敗:', error);
+      this.showError('PDFの読み込みに失敗しました。');
     }
   }
 

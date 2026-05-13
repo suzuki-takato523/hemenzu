@@ -165,9 +165,118 @@ export class DrawingCanvas {
     this.isSpacePressed = false;
     this.isPanning = false;
     this.panStartPoint = null;
-    
+
+    // 背景画像（PDF/PNG/JPG を下絵として表示）
+    this.backgroundImage = null;
+    this.backgroundImageOpacity = 0.4;
+    this.backgroundImageScale = 1.0;       // 大きさ倍率（1.0 = 元のサイズ）
+    this.backgroundImageOffsetX = 0;        // 横位置オフセット（ワールド座標）
+    this.backgroundImageOffsetY = 0;        // 縦位置オフセット（ワールド座標）
+    this.backgroundImageRotation = 0;       // 回転（ラジアン）
+
     this.initCanvas();
     this.setupEventListeners();
+  }
+
+  // 出力範囲（PDF/画像/Excel 出力時にキャプチャされる領域）を表示する破線枠
+  // PDFや画像・Excel出力で使う 34×44マス、原点中心の範囲と同じ
+  drawExportBounds() {
+    if (this.showExportBounds === false) return;
+
+    const widthGridUnits = 34;
+    const heightGridUnits = 44;
+    const w = widthGridUnits * this.gridSize;
+    const h = heightGridUnits * this.gridSize;
+    const x = -w / 2;
+    const y = -h / 2;
+
+    this.ctx.save();
+    this.ctx.strokeStyle = '#ff7a1f'; // オレンジ
+    this.ctx.lineWidth = 3 / this.scale;
+    this.ctx.setLineDash([16 / this.scale, 10 / this.scale]);
+    this.ctx.strokeRect(x, y, w, h);
+    this.ctx.setLineDash([]);
+
+    // 角に小さなラベル（出力範囲）
+    const fontPx = 22 / this.scale;
+    this.ctx.font = `bold ${fontPx}px "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif`;
+    this.ctx.fillStyle = '#ff7a1f';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText('出力範囲', x + 8 / this.scale, y - 6 / this.scale);
+
+    this.ctx.restore();
+  }
+
+  // 背景画像（下絵）の設定
+  setBackgroundImage(imageUrl) {
+    const img = new Image();
+    img.onload = () => {
+      this.backgroundImage = img;
+      this.fitViewToBackgroundImage();
+      console.log(`背景画像読み込み完了: ${img.naturalWidth} x ${img.naturalHeight}`);
+    };
+    img.onerror = (err) => {
+      console.error('背景画像の読み込みに失敗:', err);
+    };
+    img.src = imageUrl;
+  }
+
+  clearBackgroundImage() {
+    this.backgroundImage = null;
+    this.resetBackgroundImageTransform();
+    this.redrawCanvas();
+  }
+
+  setBackgroundImageOpacity(opacity) {
+    this.backgroundImageOpacity = Math.max(0, Math.min(1, opacity));
+    this.redrawCanvas();
+  }
+
+  setBackgroundImageOffset(x, y) {
+    this.backgroundImageOffsetX = x;
+    this.backgroundImageOffsetY = y;
+    this.redrawCanvas();
+  }
+
+  setBackgroundImageScale(scale) {
+    this.backgroundImageScale = Math.max(0.05, Math.min(10, scale));
+    this.redrawCanvas();
+  }
+
+  setBackgroundImageRotation(radians) {
+    this.backgroundImageRotation = radians;
+    this.redrawCanvas();
+  }
+
+  resetBackgroundImageTransform() {
+    this.backgroundImageOffsetX = 0;
+    this.backgroundImageOffsetY = 0;
+    this.backgroundImageScale = 1.0;
+    this.backgroundImageRotation = 0;
+    this.backgroundImageOpacity = 0.4;
+    this.redrawCanvas();
+  }
+
+  // 背景画像が画面に収まるようスケールと位置を調整
+  // 画像は原点(0,0)を中心に描画されるので、原点を画面中央に置けば画像も中央に来る
+  fitViewToBackgroundImage() {
+    if (!this.backgroundImage) return;
+
+    const imgW = this.backgroundImage.naturalWidth;
+    const imgH = this.backgroundImage.naturalHeight;
+    const canvasW = this.canvas.width;
+    const canvasH = this.canvas.height;
+
+    // 画像が90%収まるスケール（余白を確保）
+    const fitScale = Math.min(canvasW / imgW, canvasH / imgH) * 0.9;
+    this.scale = Math.max(this.minScale, Math.min(this.maxScale, fitScale));
+
+    // 原点(0,0)をキャンバス中央に → 画像も中央に来る（十字の交点と画像中心が一致）
+    this.translateX = canvasW / 2;
+    this.translateY = canvasH / 2;
+
+    this.redrawCanvas();
   }
 
   // デバイスに応じた初期ズームレベルを取得
@@ -2220,10 +2329,27 @@ export class DrawingCanvas {
     
     // ズーム・パン変換を適用
     this.ctx.setTransform(this.scale, 0, 0, this.scale, this.translateX, this.translateY);
-    
+
+    // 背景画像（下絵）— グリッドより下に半透明で描画
+    // 位置/回転/大きさ/不透明度はユーザーが調整可能
+    if (this.backgroundImage) {
+      this.ctx.save();
+      this.ctx.globalAlpha = this.backgroundImageOpacity;
+      this.ctx.translate(this.backgroundImageOffsetX, this.backgroundImageOffsetY);
+      this.ctx.rotate(this.backgroundImageRotation);
+      this.ctx.scale(this.backgroundImageScale, this.backgroundImageScale);
+      const imgW = this.backgroundImage.naturalWidth;
+      const imgH = this.backgroundImage.naturalHeight;
+      this.ctx.drawImage(this.backgroundImage, -imgW / 2, -imgH / 2);
+      this.ctx.restore();
+    }
+
     // グリッドを描画
     this.drawGrid();
-    
+
+    // 出力範囲（PDF/画像/Excel 出力時に切り取られる領域）を描画
+    this.drawExportBounds();
+
     // レイヤー順に描画：塗りつぶし → その他のオブジェクト
     // 1. 塗りつぶしを先に描画
     this.allPaths.forEach((pathData, index) => {
@@ -5723,49 +5849,39 @@ export class DrawingCanvas {
     const halfEndX = Math.ceil(viewRight / halfGridSize) * halfGridSize;
     const halfEndY = Math.ceil(viewBottom / halfGridSize) * halfGridSize;
     
-    ctx.strokeStyle = '#cccccc'; // 0.5マスの線をより濃いグレーに
+    // 0.5マス: ごく薄い細い実線（サブグリッド）
+    ctx.strokeStyle = '#ececec';
     ctx.lineWidth = 0.5 / this.scale;
     ctx.beginPath();
-    
-    // 垂直線（0.5マス）
     for (let x = halfStartX; x <= halfEndX; x += halfGridSize) {
       ctx.moveTo(x, viewTop);
       ctx.lineTo(x, viewBottom);
     }
-    
-    // 水平線（0.5マス）
     for (let y = halfStartY; y <= halfEndY; y += halfGridSize) {
       ctx.moveTo(viewLeft, y);
       ctx.lineTo(viewRight, y);
     }
-    
     ctx.stroke();
-    
-    // 1マスのグリッド線（40px間隔）- 点線で表示
+
+    // 1マス: 中庸の実線（主グリッド、目立ちすぎないが視認できる程度）
     const startX = Math.floor(viewLeft / this.gridSize) * this.gridSize;
     const startY = Math.floor(viewTop / this.gridSize) * this.gridSize;
     const endX = Math.ceil(viewRight / this.gridSize) * this.gridSize;
     const endY = Math.ceil(viewBottom / this.gridSize) * this.gridSize;
-    
-    ctx.strokeStyle = '#999999'; // 濃いグレー
+
+    ctx.strokeStyle = '#bbbbbb';
     ctx.lineWidth = 1 / this.scale;
-    ctx.setLineDash([10 / this.scale, 10 / this.scale]); // 点線パターン（10px間隔）
+    ctx.setLineDash([]);
     ctx.beginPath();
-    
-    // 垂直線（1マス）
     for (let x = startX; x <= endX; x += this.gridSize) {
       ctx.moveTo(x, viewTop);
       ctx.lineTo(x, viewBottom);
     }
-    
-    // 水平線（1マス）
     for (let y = startY; y <= endY; y += this.gridSize) {
       ctx.moveTo(viewLeft, y);
       ctx.lineTo(viewRight, y);
     }
-    
     ctx.stroke();
-    ctx.setLineDash([]); // 点線をリセット
     
     // 0.25マス間隔の点を描画（クォーターグリッド）
     const quarterGridSize = this.gridSize / 4; // 10px
@@ -7142,26 +7258,25 @@ export class DrawingCanvas {
         willReadFrequently: true
       });
       
-      // PDFと同じキャンバスサイズ制限
+      // アスペクト比を保ったままキャンバスサイズを制限
       const maxSize = 4096;
-      const safeWidth = Math.min(captureWidth, maxSize);
-      const safeHeight = Math.min(captureHeight, maxSize);
-      
+      const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
+      const safeWidth = Math.round(captureWidth * pixelScale);
+      const safeHeight = Math.round(captureHeight * pixelScale);
+
       tempCanvas.width = safeWidth;
       tempCanvas.height = safeHeight;
-      
-      // PDFと同じキャンバス初期化
+
       tempCtx.fillStyle = 'white';
       tempCtx.fillRect(0, 0, safeWidth, safeHeight);
-      tempCtx.setTransform(1, 0, 0, 1, 0, 0);
       tempCtx.imageSmoothingEnabled = true;
       tempCtx.imageSmoothingQuality = 'high';
-      
-      // PDFと同じグリッド描画
-      this.drawGridOnContext(tempCtx, safeWidth, safeHeight);
-      
-      // PDFと同じパス描画
-      this.redrawPathsOnContext(tempCtx, startX, startY, safeWidth, safeHeight);
+      // 世界座標 → ピクセルのスケーリング（縦横同じ倍率なのでアスペクト保持）
+      tempCtx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
+
+      // グリッドとパスは「世界座標サイズ」を渡す（スケールは ctx 側で適用）
+      this.drawGridOnContext(tempCtx, captureWidth, captureHeight);
+      this.redrawPathsOnContext(tempCtx, startX, startY, captureWidth, captureHeight);
       
       // 一時キャンバスから画像データを取得
       const tempDataURL = tempCanvas.toDataURL('image/png', 0.95);
@@ -7238,6 +7353,44 @@ export class DrawingCanvas {
       console.error('画像エクスポートエラー:', error);
       return false;
     }
+  }
+
+  // Excel貼り付け用: 装飾なし（ヘッダー・ロゴ・枠線なし）の図面のみを Blob として返す
+  // PDF/画像と同じく原点中心の固定範囲（34×44マス）をキャプチャ。アスペクト比は保持。
+  async renderDrawingToBlob({ widthGridUnits = 34, heightGridUnits = 44, withGrid = true } = {}) {
+    const captureWidth = widthGridUnits * this.gridSize;
+    const captureHeight = heightGridUnits * this.gridSize;
+    const startX = -captureWidth / 2;
+    const startY = -captureHeight / 2;
+
+    // アスペクト比を保ったまま 4096 以内に収める
+    const maxSize = 4096;
+    const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
+    const safeWidth = Math.round(captureWidth * pixelScale);
+    const safeHeight = Math.round(captureHeight * pixelScale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = safeWidth;
+    canvas.height = safeHeight;
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // 白背景
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, safeWidth, safeHeight);
+
+    // 世界座標 → ピクセル のスケーリング（縦横同じ倍率）
+    ctx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
+
+    if (withGrid) {
+      this.drawGridOnContext(ctx, captureWidth, captureHeight);
+    }
+    this.redrawPathsOnContext(ctx, startX, startY, captureWidth, captureHeight);
+
+    return await new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), 'image/png', 0.95);
+    });
   }
 
   // 画像用ヘッダー描画（PDFと完全に同じスタイル）
@@ -7665,56 +7818,47 @@ export class DrawingCanvas {
         willReadFrequently: true // 頻繁な読み取りを最適化
       });
       
-      // キャンバスサイズを安全な範囲に制限
-      const maxSize = 4096; // 最大サイズを4096pxに制限
-      const safeWidth = Math.min(captureWidth, maxSize);
-      const safeHeight = Math.min(captureHeight, maxSize);
-      
+      // アスペクト比を保ったままキャンバスサイズを制限
+      const maxSize = 4096;
+      const pixelScale = Math.min(1, maxSize / Math.max(captureWidth, captureHeight));
+      const safeWidth = Math.round(captureWidth * pixelScale);
+      const safeHeight = Math.round(captureHeight * pixelScale);
+
       tempCanvas.width = safeWidth;
       tempCanvas.height = safeHeight;
-      
+
       console.log('一時キャンバス作成:', {
         requestedSize: { width: captureWidth, height: captureHeight },
         actualSize: { width: safeWidth, height: safeHeight },
-        context: tempCtx ? 'OK' : 'ERROR',
-        contextAttributes: tempCtx.getContextAttributes()
+        pixelScale,
+        context: tempCtx ? 'OK' : 'ERROR'
       });
-      
-      // キャンバスの初期化を確実に行う
+
       try {
-        // 背景を白で塗りつぶし
         tempCtx.fillStyle = 'white';
         tempCtx.fillRect(0, 0, safeWidth, safeHeight);
-        
-        // 元の座標系（1:1スケール、平行移動なし）に設定
-        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
-        
-        // 描画設定を安定化
         tempCtx.imageSmoothingEnabled = true;
         tempCtx.imageSmoothingQuality = 'high';
-        
+        // 世界座標 → ピクセルのスケーリング（縦横同じ倍率なのでアスペクト保持）
+        tempCtx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
       } catch (canvasError) {
         console.error('キャンバス初期化エラー:', canvasError);
         throw new Error('キャンバスの初期化に失敗しました');
       }
-      
-      // グリッド線を描画（安全なサイズで）
+
+      // グリッドとパスには「世界座標サイズ」を渡す（スケールは ctx で適用）
       try {
-        this.drawGridOnContext(tempCtx, safeWidth, safeHeight);
+        this.drawGridOnContext(tempCtx, captureWidth, captureHeight);
         console.log('グリッド描画完了');
       } catch (gridError) {
         console.warn('グリッド描画エラー:', gridError);
-        // グリッド描画失敗は続行可能
       }
-      
-      // すべての描画パスを元の座標系で再描画
-      // キャンバス座標系（中央オフセット込み）からPDF座標系（左上基準）に変換
+
       try {
-        this.redrawPathsOnContext(tempCtx, startX, startY, safeWidth, safeHeight);
+        this.redrawPathsOnContext(tempCtx, startX, startY, captureWidth, captureHeight);
         console.log('パス描画完了');
       } catch (pathError) {
         console.warn('パス描画エラー:', pathError);
-        // パス描画失敗も続行可能（背景とグリッドは残る）
       }
       
       console.log('PDF用描画データ:', {
@@ -8173,49 +8317,39 @@ export class DrawingCanvas {
       }
     }
     
-    // 0.5マスの線（80px間隔）- 正方形グリッドで描画
-    ctx.strokeStyle = '#cccccc';
+    // 0.5マス: ごく薄い細い実線（サブグリッド）
+    ctx.strokeStyle = '#ececec';
     ctx.lineWidth = 0.5;
     ctx.setLineDash([]);
-    
-    // 垂直線（0.5マス）- 正方形グリッド
     for (let x = pdfGridSize / 2; x < width; x += pdfGridSize / 2) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, height);
       ctx.stroke();
     }
-    
-    // 水平線（0.5マス）- 正方形グリッド
     for (let y = pdfGridSize / 2; y < height; y += pdfGridSize / 2) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
       ctx.stroke();
     }
-    
-    // 1マスの線（160px間隔）- 点線で表示
-    ctx.strokeStyle = '#999999';
+
+    // 1マス: 中庸の実線（主グリッド）
+    ctx.strokeStyle = '#bbbbbb';
     ctx.lineWidth = 1;
-    ctx.setLineDash([10, 10]); // 点線パターン（10px間隔）
-    
-    // 垂直線（1マス）- 正方形グリッド
+    ctx.setLineDash([]);
     for (let x = pdfGridSize; x < width; x += pdfGridSize) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, height);
       ctx.stroke();
     }
-    
-    // 水平線（1マス）- 正方形グリッド
     for (let y = pdfGridSize; y < height; y += pdfGridSize) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
       ctx.stroke();
     }
-    
-    ctx.setLineDash([]); // 点線をリセット
     
     // 中心線（正方形グリッドに合わせて配置）
     // 縦中心線：9マス目の中央から0.5マス左に移動（8.5マス目）

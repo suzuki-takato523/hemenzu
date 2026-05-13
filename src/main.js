@@ -565,14 +565,35 @@ class FloorPlanApp {
         console.log('画像出力がクリックされました');
         exportMenu.style.display = 'none';
         exportBtn.classList.remove('active');
-        
+
         // テキスト編集中の場合は先に終了
         this.handleToolSwitch();
-        
+
         // 画像エクスポートを実行
         const success = await this.canvas.exportToImage('png', 0.95);
         // フィードバックメッセージは表示しない
       });
+
+      // Excel出力オプション
+      const exportExcelOption = document.getElementById('export-excel-option');
+      if (exportExcelOption) {
+        exportExcelOption.addEventListener('click', async () => {
+          exportMenu.style.display = 'none';
+          exportBtn.classList.remove('active');
+          this.handleToolSwitch();
+          await this.exportToExcel();
+        });
+      }
+
+      // Excelテンプレ再選択オプション
+      const exportExcelTemplateOption = document.getElementById('export-excel-template-option');
+      if (exportExcelTemplateOption) {
+        exportExcelTemplateOption.addEventListener('click', async () => {
+          exportMenu.style.display = 'none';
+          exportBtn.classList.remove('active');
+          await this.selectExcelTemplate();
+        });
+      }
 
       // メニュー外クリックで閉じる
       document.addEventListener('click', () => {
@@ -1677,19 +1698,336 @@ class FloorPlanApp {
     if (!this.canvas) return;
 
     try {
-      // TODO: setBackgroundImageメソッドの実装が必要
-      if (typeof this.canvas.setBackgroundImage === 'function') {
-        this.canvas.setBackgroundImage(imageUrl);
-        console.log('背景画像を読み込みました');
-      } else {
-        console.warn('setBackgroundImageメソッドが実装されていません');
-        // 暫定対応: 画像を新規プロジェクトとして開く
-        alert('背景画像機能は現在実装中です。');
-      }
-      
+      this.canvas.setBackgroundImage(imageUrl);
+      console.log('背景画像を読み込みました');
+      this.showBackgroundImagePanel();
     } catch (error) {
       console.error('背景画像の読み込みに失敗:', error);
     }
+  }
+
+  showBackgroundImagePanel() {
+    const panel = document.getElementById('bg-image-panel');
+    if (!panel) return;
+    panel.style.display = '';
+    this.setupBackgroundImagePanel();
+    this.syncBackgroundImagePanel();
+  }
+
+  hideBackgroundImagePanel() {
+    const panel = document.getElementById('bg-image-panel');
+    if (panel) panel.style.display = 'none';
+    if (this.hideBackgroundEditOverlay) this.hideBackgroundEditOverlay();
+  }
+
+  // パネルのUIと canvas の現在値を同期
+  syncBackgroundImagePanel() {
+    if (!this.canvas) return;
+    const map = [
+      ['bg-pos-x', this.canvas.backgroundImageOffsetX, 'bg-pos-x-val', (v) => Math.round(v)],
+      ['bg-pos-y', this.canvas.backgroundImageOffsetY, 'bg-pos-y-val', (v) => Math.round(v)],
+      ['bg-scale', this.canvas.backgroundImageScale * 100, 'bg-scale-val', (v) => Math.round(v)],
+      ['bg-rotation', this.canvas.backgroundImageRotation * 180 / Math.PI, 'bg-rotation-val', (v) => v.toFixed(1)],
+      ['bg-opacity', this.canvas.backgroundImageOpacity * 100, 'bg-opacity-val', (v) => Math.round(v)],
+    ];
+    map.forEach(([sliderId, value, valId, formatter]) => {
+      const slider = document.getElementById(sliderId);
+      const valSpan = document.getElementById(valId);
+      if (slider) slider.value = value;
+      if (valSpan) valSpan.textContent = formatter(value);
+    });
+  }
+
+  setupBackgroundImagePanel() {
+    if (this.bgPanelInitialized) return;
+    this.bgPanelInitialized = true;
+
+    const wire = (sliderId, valId, formatter, apply) => {
+      const slider = document.getElementById(sliderId);
+      const valSpan = document.getElementById(valId);
+      if (!slider) return;
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        if (valSpan) valSpan.textContent = formatter(v);
+        apply(v);
+      });
+    };
+
+    wire('bg-pos-x', 'bg-pos-x-val', (v) => Math.round(v),
+      (v) => this.canvas.setBackgroundImageOffset(v, this.canvas.backgroundImageOffsetY));
+    wire('bg-pos-y', 'bg-pos-y-val', (v) => Math.round(v),
+      (v) => this.canvas.setBackgroundImageOffset(this.canvas.backgroundImageOffsetX, v));
+    wire('bg-scale', 'bg-scale-val', (v) => Math.round(v),
+      (v) => this.canvas.setBackgroundImageScale(v / 100));
+    wire('bg-rotation', 'bg-rotation-val', (v) => v.toFixed(1),
+      (v) => this.canvas.setBackgroundImageRotation(v * Math.PI / 180));
+    wire('bg-opacity', 'bg-opacity-val', (v) => Math.round(v),
+      (v) => this.canvas.setBackgroundImageOpacity(v / 100));
+
+    const resetBtn = document.getElementById('bg-reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        this.canvas.resetBackgroundImageTransform();
+        this.syncBackgroundImagePanel();
+      });
+    }
+
+    const removeBtn = document.getElementById('bg-remove-btn');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        this.canvas.clearBackgroundImage();
+        this.hideBackgroundImagePanel();
+      });
+    }
+
+    const toggleBtn = document.getElementById('bg-image-panel-toggle');
+    const panel = document.getElementById('bg-image-panel');
+    if (toggleBtn && panel) {
+      toggleBtn.addEventListener('click', () => {
+        panel.classList.toggle('collapsed');
+      });
+    }
+
+    this.setupBackgroundEditOverlay();
+  }
+
+  // ===== Excel 報告書 出力 =====
+
+  async exportToExcel() {
+    if (!this.canvas) return;
+    try {
+      // 1. テンプレート取得（キャッシュ優先、なければ選択を促す）
+      let templateBuffer = await this.getCachedExcelTemplate();
+      if (!templateBuffer) {
+        alert('初回のみExcelテンプレートを選択してください。次回以降は自動でこのテンプレートが使われます。');
+        templateBuffer = await this.pickExcelTemplate();
+        if (!templateBuffer) return;
+        await this.cacheExcelTemplate(templateBuffer);
+      }
+
+      // 2. 図面をPNG Blobとしてレンダリング
+      const pngBlob = await this.canvas.renderDrawingToBlob({ withGrid: true });
+      if (!pngBlob) {
+        alert('図面の出力に失敗しました。');
+        return;
+      }
+      const pngBuffer = await pngBlob.arrayBuffer();
+
+      // 3. exceljs を動的ロードしてテンプレートを開く
+      const ExcelJS = (await import('exceljs')).default;
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(templateBuffer);
+
+      const sheet = workbook.getWorksheet('間取り図');
+      if (!sheet) {
+        alert('テンプレートに「間取り図」シートが見つかりません。');
+        return;
+      }
+
+      // 4. 画像をシートに挿入
+      // 印刷範囲 A1:DE155、タイトル A1:Q3 の下にある A4:DE155 を埋める
+      // exceljs は 0-indexed、br は "one past" の意味なので col=109 (DF), row=155 (Excel 156行) を指定
+      const imageId = workbook.addImage({
+        buffer: pngBuffer,
+        extension: 'png',
+      });
+      sheet.addImage(imageId, {
+        tl: { col: 0, row: 3 },
+        br: { col: 109, row: 155 },
+        editAs: 'absolute',
+      });
+
+      // 5. xlsx として書き出してダウンロード
+      const xlsxBuffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([xlsxBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `間取り図入り_工事完了報告書_${ts}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      console.log('Excel報告書を出力しました');
+    } catch (error) {
+      console.error('Excel出力に失敗:', error);
+      alert('Excel出力に失敗しました: ' + (error?.message || error));
+    }
+  }
+
+  async selectExcelTemplate() {
+    const buffer = await this.pickExcelTemplate();
+    if (!buffer) return;
+    await this.cacheExcelTemplate(buffer);
+    alert('テンプレートを更新しました。');
+  }
+
+  pickExcelTemplate() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx';
+      input.onchange = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) { resolve(null); return; }
+        try {
+          resolve(await file.arrayBuffer());
+        } catch (err) {
+          console.error(err);
+          resolve(null);
+        }
+      };
+      input.click();
+    });
+  }
+
+  // IndexedDB を使ってテンプレートをキャッシュ（容量大きめでもOK）
+  _openTemplateDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('heimenzukei', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('templates')) {
+          db.createObjectStore('templates');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async getCachedExcelTemplate() {
+    try {
+      const db = await this._openTemplateDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction('templates', 'readonly');
+        const getReq = tx.objectStore('templates').get('excelTemplate');
+        getReq.onsuccess = () => resolve(getReq.result || null);
+        getReq.onerror = () => reject(getReq.error);
+      });
+    } catch (err) {
+      console.warn('テンプレートキャッシュ取得失敗:', err);
+      return null;
+    }
+  }
+
+  async cacheExcelTemplate(buffer) {
+    try {
+      const db = await this._openTemplateDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('templates', 'readwrite');
+        tx.objectStore('templates').put(buffer, 'excelTemplate');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.warn('テンプレートキャッシュ保存失敗:', err);
+    }
+  }
+
+  // 下絵編集モード：透明オーバーレイで直接ドラッグ/拡縮できる
+  setupBackgroundEditOverlay() {
+    const editBtn = document.getElementById('bg-edit-toggle');
+    const overlay = document.getElementById('bg-edit-overlay');
+    if (!editBtn || !overlay) return;
+
+    const setEnabled = (enabled) => {
+      overlay.style.display = enabled ? 'block' : 'none';
+      editBtn.classList.toggle('active', enabled);
+      editBtn.textContent = enabled
+        ? '✓ 編集中（クリックで戻る）'
+        : '🖱️ 動かす（ドラッグで移動・ホイールで拡縮）';
+    };
+    setEnabled(false);
+
+    editBtn.addEventListener('click', () => {
+      const enabled = overlay.style.display === 'none';
+      setEnabled(enabled);
+    });
+
+    // ポインタ管理：1本指=ドラッグで移動、2本指=ピンチで拡縮
+    const activePointers = new Map();
+    let dragStart = null;
+    let pinchStart = null;
+
+    const beginDrag = (pointer) => {
+      dragStart = {
+        x: pointer.x,
+        y: pointer.y,
+        offsetX: this.canvas.backgroundImageOffsetX,
+        offsetY: this.canvas.backgroundImageOffsetY,
+      };
+    };
+
+    const beginPinch = (points) => {
+      const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      pinchStart = {
+        dist,
+        scale: this.canvas.backgroundImageScale,
+      };
+      dragStart = null;
+    };
+
+    overlay.addEventListener('pointerdown', (e) => {
+      overlay.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size === 1) {
+        beginDrag({ x: e.clientX, y: e.clientY });
+      } else if (activePointers.size === 2) {
+        beginPinch([...activePointers.values()]);
+      }
+    });
+
+    overlay.addEventListener('pointermove', (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 2 && pinchStart) {
+        const pts = [...activePointers.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const newScale = pinchStart.scale * (dist / pinchStart.dist);
+        this.canvas.setBackgroundImageScale(newScale);
+        this.syncBackgroundImagePanel();
+      } else if (activePointers.size === 1 && dragStart) {
+        // 画面のピクセル差分 → ワールド座標の移動量（キャンバスズーム scale で割る）
+        const dx = (e.clientX - dragStart.x) / this.canvas.scale;
+        const dy = (e.clientY - dragStart.y) / this.canvas.scale;
+        this.canvas.setBackgroundImageOffset(
+          dragStart.offsetX + dx,
+          dragStart.offsetY + dy,
+        );
+        this.syncBackgroundImagePanel();
+      }
+    });
+
+    const endPointer = (e) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) {
+        dragStart = null;
+        pinchStart = null;
+      } else if (activePointers.size === 1) {
+        // ピンチから1本指残ったらドラッグに切り替え
+        pinchStart = null;
+        const [p] = [...activePointers.values()];
+        beginDrag(p);
+      }
+    };
+
+    overlay.addEventListener('pointerup', endPointer);
+    overlay.addEventListener('pointercancel', endPointer);
+
+    overlay.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.05 : (1 / 1.05);
+      this.canvas.setBackgroundImageScale(this.canvas.backgroundImageScale * factor);
+      this.syncBackgroundImagePanel();
+    }, { passive: false });
+
+    this.hideBackgroundEditOverlay = () => setEnabled(false);
   }
 
   // プロジェクトデータのエクスポート
@@ -1942,7 +2280,8 @@ class FloorPlanApp {
     
     // 背景画像もクリア
     if (this.canvas.backgroundImage) {
-      this.canvas.backgroundImage = null;
+      this.canvas.clearBackgroundImage();
+      this.hideBackgroundImagePanel();
     }
     
     // テキスト関連の状態もクリア
@@ -2003,7 +2342,8 @@ class FloorPlanApp {
         
         // 背景画像もクリア
         if (this.canvas.backgroundImage) {
-          this.canvas.backgroundImage = null;
+          this.canvas.clearBackgroundImage();
+          this.hideBackgroundImagePanel();
         }
         
         // テキスト関連の状態もクリア

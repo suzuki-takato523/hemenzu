@@ -1545,3 +1545,194 @@ body {
     gap: 12px;
   }
 }
+
+/* ===== 下絵編集モードのオーバーレイ ===== */
+.bg-edit-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: move;
+  z-index: 50;
+  background: rgba(80, 130, 255, 0.06);
+  border: 2px dashed rgba(80, 130, 255, 0.5);
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+/* ===== 下絵（背景画像）調整パネル ===== */
+.bg-image-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 280px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  z-index: 100;
+  user-select: none;
+}
+
+.bg-image-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  border-radius: 8px 8px 0 0;
+  cursor: default;
+}
+
+.bg-image-panel-title {
+  font-weight: 600;
+  color: #333;
+}
+
+.bg-image-panel-toggle {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #666;
+}
+
+.bg-image-panel-toggle:hover {
+  background: #eee;
+}
+
+.bg-image-panel.collapsed .bg-image-panel-body {
+  display: none;
+}
+
+.bg-image-panel.collapsed .bg-image-panel-toggle {
+  transform: rotate(-90deg);
+}
+
+.bg-image-panel-body {
+  padding: 10px 12px;
+}
+
+.bg-edit-toggle {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  color: #333;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: center;
+}
+
+.bg-edit-toggle:hover {
+  background: #eee;
+}
+
+.bg-edit-toggle.active {
+  background: #5082ff;
+  color: #fff;
+  border-color: #3a6ce0;
+}
+
+body.dark-mode .bg-edit-toggle {
+  background: #333;
+  border-color: #555;
+  color: #ddd;
+}
+
+body.dark-mode .bg-edit-toggle:hover {
+  background: #444;
+}
+
+body.dark-mode .bg-edit-toggle.active {
+  background: #4070e0;
+  color: #fff;
+}
+
+.bg-control-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 52px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bg-control-row label {
+  color: #555;
+  font-size: 12px;
+}
+
+.bg-control-row input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.bg-control-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #333;
+  font-size: 12px;
+}
+
+.bg-control-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.bg-action-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 12px;
+  color: #333;
+}
+
+.bg-action-btn:hover {
+  background: #eee;
+}
+
+.bg-action-btn.bg-danger {
+  color: #c00;
+  border-color: #ecc;
+}
+
+.bg-action-btn.bg-danger:hover {
+  background: #fee;
+}
+
+/* ダークモード対応 */
+body.dark-mode .bg-image-panel {
+  background: rgba(40, 40, 40, 0.95);
+  border-color: #555;
+  color: #eee;
+}
+
+body.dark-mode .bg-image-panel-header {
+  background: #2a2a2a;
+  border-bottom-color: #444;
+}
+
+body.dark-mode .bg-image-panel-title,
+body.dark-mode .bg-control-row label,
+body.dark-mode .bg-control-value {
+  color: #ddd;
+}
+
+body.dark-mode .bg-action-btn {
+  background: #333;
+  border-color: #555;
+  color: #ddd;
+}
+
+body.dark-mode .bg-action-btn:hover {
+  background: #444;
+}
